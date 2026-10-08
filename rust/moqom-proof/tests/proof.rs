@@ -61,17 +61,27 @@ fn an_ml_dsa_proof_fits_the_limit() {
     let proof = prover
         .prove(&[b't'; 5000], &CERTIFICATE, &nonce().unwrap(), now())
         .unwrap();
-    assert!(proof.len() < MAX_PROOF_BYTES * 3 / 4, "{} bytes", proof.len());
+    assert!(
+        proof.len() < MAX_PROOF_BYTES * 3 / 4,
+        "{} bytes",
+        proof.len()
+    );
 }
 
 #[test]
 fn a_checker_can_refuse_es256() {
     let prover = Prover::generate(Algorithm::Es256).unwrap();
     let proof = prover.prove(b"t", &CERTIFICATE, "n", now()).unwrap();
-    let checker =
-        Checker::new(MemoryNonceStore::default()).with_algorithms(&[Algorithm::MlDsa65]);
+    let checker = Checker::new(MemoryNonceStore::default()).with_algorithms(&[Algorithm::MlDsa65]);
     assert_eq!(
-        checker.check(&proof, b"t", Some(&CERTIFICATE), prover.thumbprint(), now(), until()),
+        checker.check(
+            &proof,
+            b"t",
+            Some(&CERTIFICATE),
+            prover.thumbprint(),
+            now(),
+            until()
+        ),
         Err(Error::Unsupported)
     );
 }

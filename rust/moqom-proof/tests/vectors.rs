@@ -134,8 +134,18 @@ fn proofs() {
         assert_eq!(got, case.error, "{}: {:?}", case.name, check());
 
         if case.error.is_empty() {
-            assert_eq!(checker.store().remembered(), case.spent.len() + 1, "{}", case.name);
-            assert_eq!(check().err().map(|e| e.class()), Some("replayed"), "{}", case.name);
+            assert_eq!(
+                checker.store().remembered(),
+                case.spent.len() + 1,
+                "{}",
+                case.name
+            );
+            assert_eq!(
+                check().err().map(|e| e.class()),
+                Some("replayed"),
+                "{}",
+                case.name
+            );
         } else {
             assert_eq!(
                 checker.store().remembered(),

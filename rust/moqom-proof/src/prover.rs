@@ -64,9 +64,9 @@ impl Prover {
     /// [`Error::Signing`] if key generation fails.
     pub fn generate(algorithm: Algorithm) -> Result<Self, Error> {
         Self::new(match algorithm {
-            Algorithm::MlDsa65 => {
-                Key::MlDsa65(PqdsaKeyPair::generate(&ML_DSA_65_SIGNING).map_err(|_| Error::Signing)?)
-            }
+            Algorithm::MlDsa65 => Key::MlDsa65(
+                PqdsaKeyPair::generate(&ML_DSA_65_SIGNING).map_err(|_| Error::Signing)?,
+            ),
             Algorithm::Es256 => Key::Es256(
                 EcdsaKeyPair::generate(&ECDSA_P256_SHA256_FIXED_SIGNING)
                     .map_err(|_| Error::Signing)?,

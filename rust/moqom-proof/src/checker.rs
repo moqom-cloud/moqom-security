@@ -129,7 +129,10 @@ impl<S: NonceStore> Checker<S> {
         let members = header
             .jwk
             .ok_or(Error::Malformed("header carries no key"))?;
-        if PRIVATE_MEMBERS.iter().any(|name| members.contains_key(*name)) {
+        if PRIVATE_MEMBERS
+            .iter()
+            .any(|name| members.contains_key(*name))
+        {
             return Err(Error::Malformed("the key carries a private member"));
         }
         let jwk: Jwk = serde_json::from_value(members.into())
@@ -139,7 +142,9 @@ impl<S: NonceStore> Checker<S> {
         }
         let key = match jwk.public_key()? {
             PublicKey::MlDsa65(raw) => UnparsedPublicKey::new(&ML_DSA_65, raw).parse(),
-            PublicKey::Es256(point) => UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, point).parse(),
+            PublicKey::Es256(point) => {
+                UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, point).parse()
+            }
         }
         .map_err(|_| Error::Malformed("the key is not a valid public key"))?;
         key.verify_sig(signed, &signature)
@@ -169,10 +174,16 @@ impl<S: NonceStore> Checker<S> {
         } else {
             UNIX_EPOCH - Duration::from_secs(iat.unsigned_abs())
         };
-        if now.checked_sub(self.window).is_some_and(|earliest| issued < earliest) {
+        if now
+            .checked_sub(self.window)
+            .is_some_and(|earliest| issued < earliest)
+        {
             return Err(Error::Expired);
         }
-        if now.checked_add(self.window).is_some_and(|latest| issued > latest) {
+        if now
+            .checked_add(self.window)
+            .is_some_and(|latest| issued > latest)
+        {
             return Err(Error::NotYetValid);
         }
         if claims.jti.is_empty() {
@@ -182,9 +193,12 @@ impl<S: NonceStore> Checker<S> {
     }
 }
 
+/// The header and claims segments, the signed bytes, and the decoded signature.
+type Segments<'a> = (&'a [u8], &'a [u8], &'a [u8], Vec<u8>);
+
 /// A compact JWS's segments, with the signed bytes taken verbatim from the
 /// input: the signature is over bytes, and a round trip need not keep them.
-fn split(jws: &[u8]) -> Result<(&[u8], &[u8], &[u8], Vec<u8>), Error> {
+fn split(jws: &[u8]) -> Result<Segments<'_>, Error> {
     let mut segments = jws.split(|&byte| byte == b'.');
     let (Some(header), Some(claims), Some(signature), None) = (
         segments.next(),
