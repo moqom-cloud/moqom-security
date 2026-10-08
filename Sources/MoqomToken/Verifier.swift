@@ -9,15 +9,17 @@ import Foundation
 /// published, signing moves to it, and the old one stays verifiable until the
 /// last token it signed has expired.
 public struct Verifier: Sendable {
-    private let keys: [String: PublicKey]
+    /// By the UTF-8 of each `kid`: Go and Rust match IDs byte for byte, where
+    /// Swift's `String` would match canonically equivalent ones.
+    private let keys: [[UInt8]: PublicKey]
     /// The only `iss` accepted; empty accepts any.
     public let issuer: String
     /// The only tenant accepted; empty accepts any.
     public let tenant: String
 
     public init(issuer: String = "", tenant: String = "", keys: [PublicKey]) {
-        var byID: [String: PublicKey] = [:]
-        for key in keys { byID[key.id] = key }
+        var byID: [[UInt8]: PublicKey] = [:]
+        for key in keys { byID[Array(key.id.utf8)] = key }
         self.keys = byID
         self.issuer = issuer
         self.tenant = tenant
@@ -27,7 +29,7 @@ public struct Verifier: Sendable {
     public var isEmpty: Bool { keys.isEmpty }
 
     /// The key named `id`, if the set has one.
-    public func key(_ id: String) -> PublicKey? { keys[id] }
+    public func key(_ id: String) -> PublicKey? { keys[Array(id.utf8)] }
 
     /// Check `token` at `now` and return its claims.
     ///
@@ -44,12 +46,9 @@ public struct Verifier: Sendable {
         let (headerSegment, claimsSegment, signatureSegment) = (segments[0], segments[1], segments[2])
 
         guard let headerBytes = Self.decode(headerSegment) else { throw .malformed("header is not base64url") }
-        guard headerBytes.first(where: { !" \t\r\n".utf8.contains($0) }) == UInt8(ascii: "{"),
-              let header = try? JSONDecoder().decode(Header.self, from: headerBytes),
-              UniqueMembers.check(headerBytes)
-        else { throw .malformed("header is not JSON") }
+        guard let header = Header(headerBytes) else { throw .malformed("header is not JSON") }
         guard header.typ == TokenLimits.type else { throw .unsupported }
-        guard let key = keys[header.kid] else { throw .unknownKey }
+        guard let key = keys[Array(header.kid.utf8)] else { throw .unknownKey }
         guard header.alg == key.algorithm.rawValue else { throw .unsupported }
 
         guard let signature = Self.decode(signatureSegment) else { throw .malformed("signature is not base64url") }
@@ -71,7 +70,7 @@ public struct Verifier: Sendable {
     }
 
     private func check(_ claims: Claims, now: Date) throws(TokenError) {
-        if !issuer.isEmpty, claims.issuer != issuer { throw .wrongIssuer }
+        if !issuer.isEmpty, !claims.issuer.utf8.elementsEqual(issuer.utf8) { throw .wrongIssuer }
         if claims.expires == 0 { throw .malformed("no expiry") }
         // Whole seconds, as the claims are, so every implementation draws the
         // boundaries at the same instant.
@@ -87,7 +86,7 @@ public struct Verifier: Sendable {
         if tooLong { throw .lifetime }
         if claims.subject.isEmpty || claims.tenant.isEmpty || claims.thumbprint.isEmpty { throw .incomplete }
         if !Claims.isValidThumbprint(claims.thumbprint) { throw .thumbprint }
-        if !tenant.isEmpty, claims.tenant != tenant { throw .wrongTenant }
+        if !tenant.isEmpty, !claims.tenant.utf8.elementsEqual(tenant.utf8) { throw .wrongTenant }
     }
 
     private static func decode(_ segment: Data.SubSequence) -> Data? {
@@ -98,16 +97,20 @@ public struct Verifier: Sendable {
     /// Exactly alg, typ and kid. Any other parameter is refused, since one this
     /// build does not know (`crit`, `jku`, `x5u`) may change what the signature
     /// means.
-    private struct Header: Decodable {
+    private struct Header {
         let alg: String
         let typ: String
         let kid: String
-        init(from decoder: any Decoder) throws {
-            let c = try decoder.container(keyedBy: Member.self)
-            try c.only(["alg", "typ", "kid"])
-            alg = try c.value("alg", or: "")
-            typ = try c.value("typ", or: "")
-            kid = try c.value("kid", or: "")
+        init?(_ json: Data) {
+            do throws(StrictJSON.Invalid) {
+                guard let header = StrictJSON(json) else { return nil }
+                try header.only(["alg", "typ", "kid"])
+                alg = try header.string("alg") ?? ""
+                typ = try header.string("typ") ?? ""
+                kid = try header.string("kid") ?? ""
+            } catch {
+                return nil
+            }
         }
     }
 }

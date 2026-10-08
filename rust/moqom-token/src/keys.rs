@@ -13,7 +13,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
 use zeroize::Zeroizing;
 
-use crate::verify::UniqueMembers;
+use crate::verify::{Object, UniqueMembers};
 use crate::{Claims, Error};
 
 /// What a key verifies with.
@@ -165,8 +165,12 @@ impl PublicKey {
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum Document {
-            Wrapped { keys: Vec<Jwk> },
-            Bare(Vec<Jwk>),
+            Wrapped(Object<Wrapped>),
+            Bare(Vec<Object<Jwk>>),
+        }
+        #[derive(Deserialize)]
+        struct Wrapped {
+            keys: Vec<Object<Jwk>>,
         }
 
         serde_json::from_str::<UniqueMembers>(document)
@@ -178,7 +182,8 @@ impl PublicKey {
                     .into(),
             )
         })?;
-        let (Document::Wrapped { keys: jwks } | Document::Bare(jwks)) = parsed;
+        let (Document::Wrapped(Object(Wrapped { keys: jwks })) | Document::Bare(jwks)) = parsed;
+        let jwks: Vec<Jwk> = jwks.into_iter().map(|Object(jwk)| jwk).collect();
         if jwks.iter().any(|jwk| jwk.kid.is_empty()) {
             return Err(KeyError::Malformed("a key has an empty kid".into()));
         }

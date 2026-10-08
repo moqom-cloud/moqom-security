@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Verifier checks tokens against a set of keys.
@@ -148,9 +150,6 @@ func (v *Verifier) check(claims Claims, now time.Time) error {
 // since one this build does not know (`crit`, `jku`, `x5u`) may change what the
 // signature means.
 func decodeHeader(data []byte, into *header) error {
-	if err := uniqueMembers(data); err != nil {
-		return err
-	}
 	fields, err := object(data)
 	if err != nil {
 		return err
@@ -165,9 +164,6 @@ func decodeHeader(data []byte, into *header) error {
 // would not see a "Sub" as `sub`, so neither may this one.
 func decodeClaims(data []byte) (Claims, error) {
 	var claims Claims
-	if err := uniqueMembers(data); err != nil {
-		return Claims{}, err
-	}
 	fields, err := object(data)
 	if err != nil {
 		return Claims{}, err
@@ -203,9 +199,13 @@ func decodeClaims(data []byte) (Claims, error) {
 	return claims, nil
 }
 
+// object decodes one JSON object into its members, after [strict].
 func object(data []byte) (map[string]json.RawMessage, error) {
-	if !bytes.HasPrefix(bytes.TrimLeft(data, " \t\r\n"), []byte("{")) {
-		return nil, fmt.Errorf("not a JSON object")
+	if err := strict(data); err != nil {
+		return nil, err
+	}
+	if trimmed := bytes.TrimLeft(data, " \t\r\n"); trimmed[0] != '{' {
+		return nil, errors.New("not a JSON object")
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -214,10 +214,33 @@ func object(data []byte) (map[string]json.RawMessage, error) {
 	return fields, nil
 }
 
+// maxNesting is how many arrays and objects may sit inside one another, the
+// outermost included: serde_json's limit.
+const maxNesting = 127
+
+// strict refuses JSON that two parsers could read differently: invalid UTF-8,
+// a `\u` escape of an unpaired surrogate, a number too large for a float64,
+// nesting deeper than [maxNesting], or an object anywhere inside that names a
+// member twice. encoding/json would replace the first two with U+FFFD and keep
+// the last of a duplicate, where other parsers refuse or keep the first.
+func strict(data []byte) error {
+	if !utf8.Valid(data) {
+		return errors.New("not UTF-8")
+	}
+	if !json.Valid(data) {
+		return errors.New("not JSON")
+	}
+	if !pairedSurrogates(data) {
+		return errors.New("an unpaired surrogate escape")
+	}
+	return uniqueMembers(data)
+}
+
 // uniqueMembers refuses JSON in which any object, at any depth, names a member
-// twice. encoding/json keeps the last and other parsers the first, so a token
-// with a duplicate would mean different things to different verifiers. Names
-// are compared after unescaping, so "sub" and "s\u0075b" are the same.
+// twice. Names are compared after unescaping and byte for byte, so "sub" and
+// "s\u0075b" are the same and "sub" and "Sub" are not. It also refuses nesting
+// deeper than [maxNesting], and (as Token does) a number that overflows a
+// float64.
 func uniqueMembers(data []byte) error {
 	type level struct {
 		names   map[string]bool
@@ -252,6 +275,9 @@ func uniqueMembers(data []byte) error {
 			}
 			top.wantKey = true
 		}
+		if (token == json.Delim('{') || token == json.Delim('[')) && len(stack) == maxNesting {
+			return fmt.Errorf("nested deeper than %d", maxNesting)
+		}
 		switch token {
 		case json.Delim('{'):
 			stack = append(stack, &level{names: map[string]bool{}, wantKey: true})
@@ -261,8 +287,48 @@ func uniqueMembers(data []byte) error {
 	}
 }
 
+// pairedSurrogates reports whether every `\u` escape in valid JSON data that
+// names a surrogate is a high one followed at once by a low one.
+func pairedSurrogates(data []byte) bool {
+	inString := false
+	for i := 0; i < len(data); i++ {
+		switch {
+		case !inString:
+			inString = data[i] == '"'
+		case data[i] == '"':
+			inString = false
+		case data[i] == '\\':
+			i++
+			if data[i] != 'u' {
+				continue
+			}
+			unit := hexUnit(data[i+1 : i+5])
+			i += 4
+			switch {
+			case unit >= 0xDC00 && unit < 0xE000:
+				return false
+			case unit >= 0xD800 && unit < 0xDC00:
+				if i+6 >= len(data) || data[i+1] != '\\' || data[i+2] != 'u' {
+					return false
+				}
+				if low := hexUnit(data[i+3 : i+7]); low < 0xDC00 || low >= 0xE000 {
+					return false
+				}
+				i += 6
+			}
+		}
+	}
+	return true
+}
+
+func hexUnit(digits []byte) uint64 {
+	unit, _ := strconv.ParseUint(string(digits), 16, 16)
+	return unit
+}
+
 // fieldsInto decodes each known member into its target. A null is refused
 // rather than read as absent, and with strict an unknown member is refused.
+// So is -0, which serde_json reads as a float and so not as an integer.
 func fieldsInto(fields map[string]json.RawMessage, targets map[string]any, strict bool) error {
 	for name, raw := range fields {
 		target, known := targets[name]
@@ -272,8 +338,11 @@ func fieldsInto(fields map[string]json.RawMessage, targets map[string]any, stric
 			}
 			continue
 		}
-		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		switch string(bytes.TrimSpace(raw)) {
+		case "null":
 			return fmt.Errorf("member %q is null", name)
+		case "-0":
+			return fmt.Errorf("member %q is -0", name)
 		}
 		if err := json.Unmarshal(raw, target); err != nil {
 			return fmt.Errorf("member %q: %w", name, err)

@@ -130,7 +130,7 @@ public struct PublicKey: Hashable, Sendable {
     /// silently lost a key verifies fewer tokens than its author thinks.
     /// Members a key does not need (`use`, `key_ops`) are ignored.
     public static func parseSet(_ document: Data) throws(SetError) -> [PublicKey] {
-        guard UniqueMembers.check(document) else { throw .malformed("not JSON, or a member named twice") }
+        guard StrictJSON.isValid(document) else { throw .malformed("not strict JSON, or a member named twice") }
         let jwks: [JWK]
         do {
             if document.first(where: { !" \t\r\n".utf8.contains($0) }) == UInt8(ascii: "{") {
@@ -142,7 +142,7 @@ public struct PublicKey: Hashable, Sendable {
             throw .malformed("not an array of JWKs or {\"keys\": [...]}, or a JWK with a missing, null or mistyped member")
         }
         var keys: [PublicKey] = []
-        var seen: Set<String> = []
+        var seen: Set<[UInt8]> = []
         for jwk in jwks {
             let algorithm: Algorithm
             let field: String
@@ -158,7 +158,7 @@ public struct PublicKey: Hashable, Sendable {
                 throw .invalid(kid: jwk.kid, reason: "\(name) is not base64url")
             }
             let key = try PublicKey(id: jwk.kid, algorithm: algorithm, rawRepresentation: raw)
-            guard seen.insert(jwk.kid).inserted else { throw .duplicateKeyID(jwk.kid) }
+            guard seen.insert(Array(jwk.kid.utf8)).inserted else { throw .duplicateKeyID(jwk.kid) }
             keys.append(key)
         }
         return keys

@@ -35,10 +35,10 @@ pub struct Claims {
     #[serde(default)]
     pub exp: i64,
     /// What the token is bound to.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::verify::object")]
     pub cnf: Confirmation,
     /// What the holder may do in MoQ.
-    #[serde(default, rename = "moqt")]
+    #[serde(default, rename = "moqt", deserialize_with = "crate::verify::object")]
     pub grant: Grant,
     /// The username whose following brought the holder in. Provenance, not
     /// authorisation: it grants nothing.

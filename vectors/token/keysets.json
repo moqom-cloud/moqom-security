@@ -179,6 +179,101 @@
       "error": "set_malformed"
     },
     {
+      "name": "a kid with an unpaired surrogate escape",
+      "document": "[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"old\\ud83d\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"}]",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "an ignored member with an unpaired surrogate escape",
+      "document": "{\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"xblA7T9lw5E\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"}],\"note\":\"\\udc00\"}",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "a number too large for a double",
+      "document": "{\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"xblA7T9lw5E\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"}],\"version\":1e400}",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "a leading-zero number",
+      "document": "{\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"xblA7T9lw5E\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"}],\"version\":01}",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "nested one deeper than allowed",
+      "document": "[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"old\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\",\"ext\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}]",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "a byte order mark",
+      "document": "﻿[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"xblA7T9lw5E\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"}]",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "data after the set",
+      "document": "[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"xblA7T9lw5E\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"}] []",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "a raw control character in a string",
+      "document": "[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"o\u0001ld\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"}]",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "a top-level string",
+      "document": "\"keys\"",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "a key that is an array",
+      "document": "[[\"OKP\",\"Ed25519\",\"\",\"old\",\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\",\"\"]]",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "a wrapped set that is an array",
+      "document": "[[[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"xblA7T9lw5E\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"}]]]",
+      "kids": null,
+      "error": "set_malformed"
+    },
+    {
+      "name": "kids that differ only in Unicode normalization are distinct",
+      "document": "[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"café\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"},{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"café\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"}]",
+      "kids": [
+        "café",
+        "café"
+      ]
+    },
+    {
+      "name": "nested as deep as allowed",
+      "document": "[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"old\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\",\"ext\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}]",
+      "kids": [
+        "old"
+      ]
+    },
+    {
+      "name": "ignored members may be null or any number",
+      "document": "{\"keys\":[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"use\":null,\"kid\":\"old\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\",\"n\":[1.5,-0,1e-400]}],\"next\":null}",
+      "kids": [
+        "old"
+      ]
+    },
+    {
+      "name": "a kid with a surrogate pair escape and whitespace",
+      "document": " [ {\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"old\\ud83d\\ude00\",\"x\":\"ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw\"} ]\n",
+      "kids": [
+        "old😀"
+      ]
+    },
+    {
       "name": "ML-DSA-44",
       "document": "[{\"kty\":\"AKP\",\"alg\":\"ML-DSA-44\",\"kid\":\"k\",\"pub\":\"xOmZogM_sOGdn4jWJmKDj2gkBVcsp1bbi9lihcRN8hOAKt33uHPJ5ePiPcdmf5_r150Q0CwNo-EvIC6Q9-3RBXlgAZB1FFLDkc_YxEo-4w18tnnPouHRDPSqULfZ5lkVrHdaNIbb3L7cE7AvryefS-ugM6RqJJMkZU2LEAcgKRx9lmb3BlMH8F75cP56gvdb7PbX5puF2h8JjGSOJSFGMi1MsAJemeoVWUb7jVMjiZ8OKoQY2aEQjoaZtF4C-DExTQP6Ur0M82cztlGCAeHUGAUHQmwVJiaKFCRdMs-t6ocxW06nLdJpZ4t0UiUx3DLKVvdLyfLToAYfAk5ickSy6GlnDBCnV1khqLz3cfEYMlQ4zonPS1AQLH-Bw-IfN5o4EhY7HCc11QKxDBrjjRcB1cE-mdV418WI0TVjbLBkhMynBLzs3FqmzAk9x2bZ6IdMZo9C3wBXk1x1PFwU2PrEMXDdOtENmBx1YvOWaK9Ev0JiAyFN47UOqPrdyoaGvqLm77Hsf4i3aCLSPkVWbMtDRbUJMe0AVgYlmuyjR3z6uphsaqcJ1XlvO0s98HXtTKBOIc8ndSthxKqcKljpmTDpQECf_L0HtkTVCc5KM_-vgQwDsU0WsDKwcabRRiJbR2FYMT7DGAqQTfGlwOO370Z0eRD3Crv1izVe4MwNYYwK-HIHBaCfy-SPSeAvZcWVQN22of4TGPCzA2DBIFgrs7LBWJ7hxw0hOI6-gpkuPfUAYpAlRTGV2IurIt02-mxjZT28_cSrFmJs3C4TMwQp0SIk2_ImQlkRR7pE2G3qVTjno249y7UUYbOf8-M7AnJzf3y5HFKfMKJTbGz-ZRAh3gw7DPm00iXaSnYk954DN0GC7_chqyL4eaFLkuLpohJOHp95roZ8ZorgeN2onV5bPmX0ODjBFX4bbR5KWTtraV15VFH7rQwmyXYLpZKZMdzS7odjQCtWsCofTqD69Kz81igMKW_p-77jQH0Pj-euiKiiziwk4hMufvPv0gnZjGMVB16HGqwbHGqLrANcJhkOnWoEco-FSPm2A7gn3fNCiaJ5nr7sil5LyTVqsNLbYVHJD59EZsFmjkQss_T5mpPvxbwEJW-le8bF1xHW17Ei7T_vsnguoBP3zAt-3E9uJYsh497TXSh_i80jmX2YtHZUDk_UY-joEXtU9GlPry9EiJHChfzNnTBdAUs9l4_CTryxL1viihfXc7a-xUPTzmqP0sw2u_y9orEqwsROHnWfoS4L9dHz_BMcgVKxbZ8zBAUDGZtPih3uGrbZuMC5VxsjR_8Eg1d6TuajP5jFm21vVVb7HE8a3i35h2Gsf3ak2-KFL6p9IBicJtozg-849UNil70Y_btQOm6aY81DB3YpjYDf5njXHAO6KoEIVX2azbxFtYCoALXnD64OZkeDDm0dHh_W2OFmaQX050YAcy09y2blx3wduhDPEqS6FDwY-duEujw1EuzQrsVm_SebsDwsJOI1Gf1kAnUTB6O0D66wBiJuF8t67R36fPQ5KGWnYIAb59LD3zBdxHnTvp_gneh4aDho05kl7wbMVFl8-0sHlb285RuD1eYhvuU5JhODsy-nWX69t7eaVqm8ziUDqW6v5U8pkNQN60ubDh-G5w-DrCVhxxy1wIAWUFMq8r63UVoOQoFfZ_ssWGNOhDU5w-Sjd0wmjsMx2lbEQ_DnZLH440M8fTO8kKrQSonPI_c8qV3LuRDm9Wvtdh0vGWPpFf45uFsPSLT71G__kLcHH6nLfm7iTpo1faL9nyVwcLqnZLLPFxdMDhf2ovekOOQw39e01RXTb5Ht618FJrVDW3OeLj-DJTmufBogYWLy7yr99cbJgUyIN1M6T3YTJWzuAcETTsYJjHVSD1tDnYTj5LBCYfAF_SvWc3ZCVDzcbarTAKWfSAL9lYyGAz6nhAdaAFb66RQJl0ZVpFgzo8BP0yk0PaTn5aXcnYNv5T7L8xSGWlNWPAqrsbqqKd-N36UA0VBrrlBoD49FAhn7PbxGOyq5cIHSp4_zIJLT3S8sZNNejnCIM_biwC-Yg_Xo4us7gRu8GfzqX_kqcYvI9Tb7iteIeXMe7ta9IprAEBDlxmVMV-InyJdb7_o-zNutvUPTuEWuPRoM6JehXmwpNU3bQD3H_En8gZDtjslt38-GzLniFvzofVQT-aR-Y6R64W6VKbjCpy1wxvoy_3La4_aCq-zncuGcta5qeulUXWfQLvNdA6BcCzhKm5LdtkH3IpWLlWI5D19rQ2ki3r6UtBnGeKCnSqugqAQ2ynsFUx27Wtgrni_7k62eRxiw4vezmdGVXB4irqA7efiVzPm1fPGlmdlAGqMswPIB_3xIGbMYe0aPvzN5399I_x18sI_BkWkPW-qoi_4qPTlr-dNUD-zzwsg5bozLW0cr8yKbkbT6GUpEbH6VFmEhmDP-z-geG1nqr1aVVDsoruj-wrVJzcmBM97vpEjKueS5BOWDZ6d8zdsticvWNUtgdELebR11Q1EcvghDGnTrJUzIm1oL1zAEBu_SrmV7USUTOY337nA0S5wFrs6_V_Kz9-h5vk7OPnkgcaa7C_4dps4Uv6EywyDUzxPEOviEWc8\"}]",
       "kids": null,

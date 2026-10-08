@@ -12,9 +12,15 @@ The first release.
 - Mints and verifies MOQOM join tokens as compact JWS signed with ML-DSA-65 (FIPS 204), with
   tenant, room, grants, expiry, device binding (`cnf.jkt`) and key rotation by key ID.
 - Verifies Ed25519 tokens signed before the move to ML-DSA-65; never signs them.
-- Refuses tokens whose header or claims repeat a member name, and tokens whose `cnf.jkt` is not
-  an RFC 7638 SHA-256 thumbprint (43 characters of canonical base64url).
-- Reads JWK sets alike in all three languages and refuses one that names a key ID twice. Loading
+- Refuses tokens whose `cnf.jkt` is not an RFC 7638 SHA-256 thumbprint (43 characters of
+  canonical base64url).
+- Reads a token's header and claims alike in all three languages: one JSON object of valid
+  UTF-8, member names matched exactly, and `malformed` for a member named twice at any depth,
+  `null` or the wrong type for a known member, an `iat`, `exp`, `pub` or `cap` that is not an
+  integer literal in range (no `1.8e9`, `3.0` or `-0`), an unpaired surrogate escape, a number
+  too large for a double, or nesting deeper than 127. Issuer, tenant and key IDs compare byte
+  for byte, without Unicode normalization.
+- Reads JWK sets by the same JSON rules and refuses one that names a key ID twice. Loading
   errors are typed: `set_malformed`, `key_unsupported`, `key_invalid` and `duplicate_kid`.
   A public key made from raw bytes of the wrong length is refused as `key_invalid` in every
   language, as one in a set is.

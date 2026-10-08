@@ -274,6 +274,18 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 	rotatedAway.Keys = []string{current, legacy}
 	cases = append(cases, expired, early, foreign, tenant, rotatedAway)
 
+	// Compared byte for byte: canonically equivalent is not equal.
+	composed := baseClaims()
+	composed.Issuer, composed.Tenant = "https://café.example", "café"
+	composedToken := mint(current, composed)
+	decomposedTenant := refused("tenant that differs only in Unicode normalization", composedToken, "wrong_tenant")
+	decomposedTenant.Issuer, decomposedTenant.Tenant = composed.Issuer, "café"
+	decomposedIssuer := refused("issuer that differs only in Unicode normalization", composedToken, "wrong_issuer")
+	decomposedIssuer.Issuer = "https://café.example"
+	sameTenant := valid("tenant and issuer with the same bytes", composedToken, composed)
+	sameTenant.Issuer, sameTenant.Tenant = composed.Issuer, composed.Tenant
+	cases = append(cases, decomposedTenant, decomposedIssuer, sameTenant)
+
 	tamperedClaims := baseClaims()
 	tamperedClaims.Grant.Owner = true
 	signature, _ := base64.RawURLEncoding.DecodeString(parts[2])
@@ -310,6 +322,71 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 		duplicateHeader("duplicate header parameter spelled with an escape", `{"alg":"ML-DSA-65","k\u0069d":"`+current+`","kid":"`+current+`","typ":"MOQT"}`),
 		valid("member names that differ only in case or sit in sibling objects",
 			withClaims("siblings", `{"aud":`, `{"later":[{"a":1},{"a":1}],"Later":{"a":{"a":1}},"aud":`), baseClaims()),
+	)
+
+	// Strict JSON: correctly signed claims and headers that some parser would
+	// read differently, and the edge cases every parser must accept.
+	malformed := func(name, old, replacement string) verifyCase {
+		return refused(name, withClaims(name, old, replacement), "malformed")
+	}
+	header := func(text string) string {
+		return rawSegment(strings.ReplaceAll(text, "KID", current))
+	}
+	nested := func(depth int) string {
+		return `{"later":` + strings.Repeat("[", depth-1) + strings.Repeat("]", depth-1) + `,"aud":`
+	}
+	surrogate := baseClaims()
+	surrogate.Subject = "ada\U0001F600"
+	limits := baseClaims()
+	limits.Grant.Publish, limits.Grant.Capabilities = 255, 4294967295
+	cases = append(cases,
+		malformed("iat in exponent form", `"iat":1800000000`, `"iat":1.8e9`),
+		malformed("iat with a zero fraction", `"iat":1800000000`, `"iat":1800000000.0`),
+		malformed("exp in exponent form", `"exp":1800000600`, `"exp":18000006e2`),
+		malformed("iat of -0", `"iat":1800000000`, `"iat":-0`),
+		malformed("exp too large for 64 bits", `"exp":1800000600`, `"exp":9223372036854775808`),
+		malformed("pub with a zero fraction", `"pub":3`, `"pub":3.0`),
+		malformed("pub in exponent form", `"pub":3`, `"pub":3e0`),
+		malformed("negative pub", `"pub":3`, `"pub":-1`),
+		malformed("cap too large for 32 bits", `"cap":0`, `"cap":4294967296`),
+		malformed("boolean grant field as a number", `"moqt":{`, `"moqt":{"own":1,`),
+		malformed("boolean grant field as a string", `"moqt":{`, `"moqt":{"own":"true",`),
+		malformed("string claim as a number", `"jti":"vector-1"`, `"jti":1`),
+		malformed("cnf is an array", `"cnf":{"jkt":"`+vectorThumbprint+`"}`, `"cnf":["`+vectorThumbprint+`"]`),
+		malformed("moqt is null", `"moqt":{"cap":0,"pub":3,"room":"room-42"}`, `"moqt":null`),
+		malformed("jkt is null", `"jkt":"`+vectorThumbprint+`"`, `"jkt":null`),
+		refused("claims are null", keys.signRaw(current, mldsaHeader, rawSegment(`null`)), "malformed"),
+		refused("claims are a string", keys.signRaw(current, mldsaHeader, rawSegment(`"ada"`)), "malformed"),
+		malformed("claim with an unpaired high surrogate escape", `"sub":"ada"`, `"sub":"ada\ud83d"`),
+		malformed("claim with an unpaired low surrogate escape", `"sub":"ada"`, `"sub":"ada\ude00"`),
+		malformed("claim with a high surrogate escape before a non-surrogate", `"sub":"ada"`, `"sub":"ada\ud83d\u0041"`),
+		malformed("unknown claim with an unpaired surrogate escape", `{"aud":`, `{"later":["\udc00"],"aud":`),
+		malformed("claims that are not utf-8", `"sub":"ada"`, "\"sub\":\"ada\xff\""),
+		malformed("claims with a utf-8 encoded surrogate", `"sub":"ada"`, "\"sub\":\"ada\xed\xa0\x80\""),
+		malformed("claims with an overlong utf-8 encoding", `"sub":"ada"`, "\"sub\":\"ada\xc0\xaf\""),
+		malformed("claims with a raw control character in a string", `"sub":"ada"`, "\"sub\":\"ad\x01a\""),
+		malformed("claims with a number too large for a double", `{"aud":`, `{"later":1e400,"aud":`),
+		malformed("claims with a leading-zero number", `{"aud":`, `{"later":01,"aud":`),
+		malformed("claims nested one deeper than allowed", `{"aud":`, nested(128)),
+		malformed("claims with a byte order mark", `{"aud":`, "\uFEFF{\"aud\":"),
+		malformed("claims with data after the object", `"sub":"ada"}`, `"sub":"ada"} {}`),
+		refused("header is null", keys.signRaw(current, rawSegment(`null`), parts[1]), "malformed"),
+		refused("header is an array", keys.signRaw(current, header(`["ML-DSA-65","MOQT","KID"]`), parts[1]), "malformed"),
+		refused("header kid is null", keys.signRaw(current, header(`{"alg":"ML-DSA-65","typ":"MOQT","kid":null}`), parts[1]), "malformed"),
+		refused("header alg is a number", keys.signRaw(current, header(`{"alg":65,"typ":"MOQT","kid":"KID"}`), parts[1]), "malformed"),
+		refused("header with an unpaired surrogate escape", keys.signRaw(current, header(`{"alg":"ML-DSA-65","typ":"MOQT\udc00","kid":"KID"}`), parts[1]), "malformed"),
+		refused("header that is not utf-8", keys.signRaw(current, header("{\"alg\":\"ML-DSA-65\",\"typ\":\"MOQT\xff\",\"kid\":\"KID\"}"), parts[1]), "malformed"),
+
+		valid("claims nested as deep as allowed", withClaims("deep", `{"aud":`, nested(127)), baseClaims()),
+		valid("unknown claim that is null is ignored", withClaims("null", `{"aud":`, `{"later":null,"aud":`), baseClaims()),
+		valid("unknown claim numbers need not be integers", withClaims("numbers", `{"aud":`, `{"later":[1.5,1e3,-0,1E+2],"aud":`), baseClaims()),
+		valid("claims with a number too small for a double", withClaims("tiny", `{"aud":`, `{"later":1e-400,"aud":`), baseClaims()),
+		valid("claim with a surrogate pair escape", withClaims("pair", `"sub":"ada"`, `"sub":"ada\ud83d\ude00"`), surrogate),
+		valid("escaped member names and values", withClaims("escaped", `"sub":"ada"`, `"s\u0075b":"\u0061d\u0061"`), baseClaims()),
+		valid("whitespace around and inside the claims", keys.signRaw(current, mldsaHeader, rawSegment(
+			" \n"+strings.ReplaceAll(base, `":`, `" : `)+"\t\r\n")), baseClaims()),
+		valid("grant integers at their limits", mint(current, limits), limits),
+		valid("header with whitespace and escapes", keys.signRaw(current, header(` {"alg" : "ML-DSA-65", "typ":"MO\u0051T", "kid":"KID"} `), parts[1]), baseClaims()),
 	)
 
 	cases = append(cases,
@@ -523,6 +600,25 @@ func buildKeySets(t *testing.T, keys vectorKeys) []keySetCase {
 		refused("a member named twice", `[{"kty":"OKP","crv":"Ed25519","kid":"old","x":"AAAA","x":"`+legacyX+`"}]`, "set_malformed"),
 		refused("keys named twice", `{"keys":[],"keys":[`+legacy+`]}`, "set_malformed"),
 		refused("a malformed key after a good one", `[`+legacy+`,{"kty":"OKP"}]`, "set_malformed"),
+		refused("a kid with an unpaired surrogate escape", `[`+okp(`old\ud83d`, legacyX)+`]`, "set_malformed"),
+		refused("an ignored member with an unpaired surrogate escape",
+			`{"keys":[`+legacy+`],"note":"\udc00"}`, "set_malformed"),
+		refused("a number too large for a double", `{"keys":[`+legacy+`],"version":1e400}`, "set_malformed"),
+		refused("a leading-zero number", `{"keys":[`+legacy+`],"version":01}`, "set_malformed"),
+		refused("nested one deeper than allowed",
+			`[{"kty":"OKP","crv":"Ed25519","kid":"old","x":"`+legacyX+`","ext":`+strings.Repeat("[", 126)+strings.Repeat("]", 126)+`}]`, "set_malformed"),
+		refused("a byte order mark", "\uFEFF["+legacy+"]", "set_malformed"),
+		refused("data after the set", `[`+legacy+`] []`, "set_malformed"),
+		refused("a raw control character in a string", "[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"o\x01ld\",\"x\":\""+legacyX+"\"}]", "set_malformed"),
+		refused("a top-level string", `"keys"`, "set_malformed"),
+		refused("a key that is an array", `[["OKP","Ed25519","","old","`+legacyX+`",""]]`, "set_malformed"),
+		refused("a wrapped set that is an array", `[[[`+legacy+`]]]`, "set_malformed"),
+		accepted("kids that differ only in Unicode normalization are distinct",
+			`[`+okp("café", legacyX)+`,`+okp("café", legacyX)+`]`, "café", "café"),
+		accepted("nested as deep as allowed",
+			`[{"kty":"OKP","crv":"Ed25519","kid":"old","x":"`+legacyX+`","ext":`+strings.Repeat("[", 125)+strings.Repeat("]", 125)+`}]`, "old"),
+		accepted("ignored members may be null or any number", `{"keys":[{"kty":"OKP","crv":"Ed25519","use":null,"kid":"old","x":"`+legacyX+`","n":[1.5,-0,1e-400]}],"next":null}`, "old"),
+		accepted("a kid with a surrogate pair escape and whitespace", " [ "+okp(`old\ud83d\ude00`, legacyX)+" ]\n", "old\U0001F600"),
 
 		refused("ML-DSA-44", `[{"kty":"AKP","alg":"ML-DSA-44","kid":"k","pub":"`+pub+`"}]`, "key_unsupported"),
 		refused("AKP with no alg", `[{"kty":"AKP","kid":"k","pub":"`+pub+`"}]`, "key_unsupported"),

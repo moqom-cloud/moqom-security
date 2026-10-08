@@ -40,12 +40,13 @@ All three pass every case in [`vectors/token`](../vectors/token).
   because no proof of possession could match it. The proof that a session
   holds that key is `moqom-proof`'s job, not this library's.
 - **Key sets.** JWK sets are read either as a bare array or wrapped in
-  `{"keys": [...]}`. The whole document is read first: member names are exact,
-  a `null` or repeated member is refused, and every key needs a `kty` and a
-  non-empty `kid` (`set_malformed`). Then each key in order: it must be `AKP` /
+  `{"keys": [...]}`. The whole document is read first, as strict JSON under
+  the same rules as a token's segments (see Parsing rules): member names are
+  exact, a `null` or repeated member is refused, each key is an object, and
+  every key needs a `kty` and a non-empty `kid` (`set_malformed`). Then each key in order: it must be `AKP` /
   `ML-DSA-65` or `OKP` / `Ed25519` (`key_unsupported`), its public key must be
   canonical base64url of the right length (`key_invalid`), and its `kid` must
-  not repeat an earlier one (`duplicate_kid`). A key that doesn't fit makes the
+  not repeat an earlier one, byte for byte (`duplicate_kid`). A key that doesn't fit makes the
   set an error rather than being skipped, and two keys under one `kid` would
   leave which one a token selects to the parser. Members a key doesn't need
   (`use`, `key_ops`) are ignored. A derived key ID is
@@ -85,9 +86,9 @@ The claims, in the order the signer writes them:
 
 | Member | Type | Meaning |
 | --- | --- | --- |
-| `iss` | string | Issuer, compared when the verifier pins one |
+| `iss` | string | Issuer, compared byte for byte when the verifier pins one |
 | `sub` | string | User. Required. |
-| `aud` | string | Tenant. Required. Compared when the verifier pins one. |
+| `aud` | string | Tenant. Required. Compared byte for byte when the verifier pins one. |
 | `jti` | string | Token ID |
 | `iat` | integer | Issued at, in Unix seconds. 0 or absent means unknown. |
 | `exp` | integer | Expires, in Unix seconds. Required. |
@@ -108,18 +109,33 @@ The grant, `moqt`:
 | `age` | bool | Age verified. Omitted when false. |
 | `rly` | bool | Relay link. Omitted when false. |
 
-Parsing rules:
+Parsing rules. The header and the claims are each one JSON object, read the
+same way in every language, so that no two parsers can disagree about what a
+token says. Anything else is malformed (`header is not JSON`, `claims are not
+JSON`), even when the signature is good:
 
-- Both segments must be JSON objects.
-- Member names are case-sensitive, and a `null` member is refused rather than
-  read as absent.
-- No object in the header or the claims, at any depth, may name a member twice
-  (`header is not JSON`, `claims are not JSON`). Parsers disagree about which
-  of a duplicate wins, so a token with one would mean different things to
-  different verifiers. Names are compared after unescaping (`s\u0075b` is
-  `sub`) and byte for byte, without Unicode normalization.
-- Unknown top-level claims are ignored, so the issuer can add one without first
-  upgrading every verifier.
+- Each segment is one JSON object (RFC 8259), with only whitespace around it:
+  not an array, a string or `null`, and no byte order mark.
+- The bytes are UTF-8 (no overlong forms or encoded surrogates), a `\u`
+  escape of a surrogate is half of a pair, and a string holds no raw control
+  character.
+- No object in the header or the claims, at any depth, may name a member
+  twice. Parsers disagree about which of a duplicate wins, so a token with one
+  would mean different things to different verifiers. Names are compared after
+  unescaping (`s\u0075b` is `sub`) and byte for byte, so `sub` and `Sub` are
+  different names.
+- A known member has its type or is absent: a string, an integer, a bool or an
+  object, as in the tables. `null` is refused rather than read as absent, and
+  `cnf` and `moqt` given as arrays are refused.
+- `iat`, `exp`, `pub` and `cap` are integer literals in range: no fraction, no
+  exponent and not `-0`, so `1.8e9`, `1800000000.0` and `3e0` are refused, as
+  are a negative `pub`, a `cap` over 32 bits and an `exp` over 64. A bool is
+  `true` or `false`, not `1` or `"true"`.
+- No number anywhere is too large for a double (`1e400`; `1e-400` is fine),
+  and arrays and objects nest at most 127 deep, the outermost object included:
+  `serde_json`'s limits, kept by all three.
+- Unknown top-level claims are ignored, whatever their value (`null`, a
+  fraction), so the issuer can add one without first upgrading every verifier.
 - An unknown member of `moqt` is malformed. A grant field added later is as
   likely to narrow a grant as to widen it, and a verifier that skipped it would
   grant more than was issued.
@@ -311,7 +327,7 @@ build would write. The generator uses fixed seeds and
 `now = 1800000000`. The top-level `keys` array lists each key's ID, algorithm,
 seed and public key.
 
-- `verify.json` has 72 cases. Each gives a token, a time, an issuer, a tenant
+- `verify.json` has 120 cases. Each gives a token, a time, an issuer, a tenant
   and a key set, together with either the claims it yields or the error class.
   They cover:
   - valid ML-DSA-65 tokens and the legacy Ed25519 ones;
@@ -329,15 +345,26 @@ seed and public key.
     unknown claim and an array, including one spelled with an escape;
   - every malformed reason, including non-canonical base64url, line breaks
     inside a segment, and non-object JSON;
+  - correctly signed segments that break a parsing rule: `null` and non-object
+    segments, `null` and mistyped members, `iat`, `exp`, `pub` and `cap` with
+    exponents, fractions, `-0` or out of range, unpaired surrogate escapes,
+    invalid UTF-8, a raw control character, a byte order mark, trailing data,
+    `1e400`, a leading zero, and nesting one deeper than allowed; and the edge
+    cases that must pass: nesting exactly 127 deep, `1e-400`, a `null` or
+    fractional unknown claim, a surrogate pair, escaped names and
+    whitespace, and `pub` and `cap` at their limits;
+  - issuer and tenant compared byte for byte, without Unicode normalization;
   - `cnf.jkt` values that are not a SHA-256 thumbprint: too short, too long,
     padded, outside the alphabet, non-canonical trailing bits, a line break,
     and a 16-character device ID.
 - `sign.json` has 18 cases: five valid claim sets with their exact signing
   input and a deterministic token, and thirteen that a signer must refuse.
-- `keysets.json` has 34 cases. Each gives a JWK set document and either the
+- `keysets.json` has 49 cases. Each gives a JWK set document and either the
   key IDs it yields, in order, or the error class. They cover both shapes, the
-  empty set, ignored members, duplicate key IDs, every `set_malformed` cause,
-  unsupported key types, and bad key material.
+  empty set, ignored members, duplicate key IDs (byte for byte), every
+  `set_malformed` cause, the parsing rules where a key set can break them
+  (surrogates, depth, number range, a byte order mark, trailing data, keys
+  written as arrays), unsupported key types, and bad key material.
 
 The runners:
 

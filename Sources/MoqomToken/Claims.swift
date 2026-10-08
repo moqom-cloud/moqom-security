@@ -105,11 +105,28 @@ public struct Claims: Hashable, Sendable {
 
     /// Claims from their JSON, read as a verifier reads them.
     public init(json: Data) throws(TokenError) {
-        guard json.first(where: { !" \t\r\n".utf8.contains($0) }) == UInt8(ascii: "{"),
-              let claims = try? JSONDecoder().decode(Wire.self, from: json),
-              UniqueMembers.check(json)
-        else { throw .malformed("claims are not JSON") }
-        self = claims.claims
+        do throws(StrictJSON.Invalid) {
+            guard let claims = StrictJSON(json) else { throw StrictJSON.Invalid() }
+            let moqt = try claims.object("moqt")
+            try moqt?.only(["room", "pub", "cap", "own", "bs", "age", "rly"])
+            guard let publish = try UInt8(exactly: moqt?.integer("pub") ?? 0),
+                  let capabilities = try UInt32(exactly: moqt?.integer("cap") ?? 0)
+            else { throw StrictJSON.Invalid() }
+            try self.init(
+                issuer: claims.string("iss") ?? "", subject: claims.string("sub") ?? "",
+                tenant: claims.string("aud") ?? "", id: claims.string("jti") ?? "",
+                issuedAt: claims.integer("iat") ?? 0, expires: claims.integer("exp") ?? 0,
+                thumbprint: claims.object("cnf")?.string("jkt") ?? "",
+                grant: Grant(
+                    room: moqt?.string("room") ?? "", publish: publish, capabilities: capabilities,
+                    owner: moqt?.bool("own") ?? false, backstage: moqt?.bool("bs") ?? false,
+                    ageVerified: moqt?.bool("age") ?? false, relay: moqt?.bool("rly") ?? false
+                ),
+                via: claims.string("via") ?? "", e2ee: claims.string("e2ee") ?? ""
+            )
+        } catch {
+            throw .malformed("claims are not JSON")
+        }
     }
 
     /// The canonical JSON: the member order and escaping every implementation
@@ -184,48 +201,6 @@ extension KeyedDecodingContainer<Member> {
             throw DecodingError.valueNotFound(T.self, .init(codingPath: codingPath + [key], debugDescription: "null"))
         }
         return try decode(T.self, forKey: key)
-    }
-
-    /// Refuse any member not in `known`.
-    func only(_ known: Set<String>) throws {
-        for key in allKeys where !known.contains(key.stringValue) {
-            throw DecodingError.dataCorruptedError(forKey: key, in: self, debugDescription: "unknown member")
-        }
-    }
-}
-
-private struct Wire: Decodable {
-    let claims: Claims
-
-    struct WireGrant: Decodable {
-        let grant: Grant
-        init(from decoder: any Decoder) throws {
-            let c = try decoder.container(keyedBy: Member.self)
-            try c.only(["room", "pub", "cap", "own", "bs", "age", "rly"])
-            grant = try Grant(
-                room: c.value("room", or: ""), publish: c.value("pub", or: 0), capabilities: c.value("cap", or: 0),
-                owner: c.value("own", or: false), backstage: c.value("bs", or: false),
-                ageVerified: c.value("age", or: false), relay: c.value("rly", or: false)
-            )
-        }
-    }
-
-    struct WireConfirmation: Decodable {
-        let jkt: String
-        init(from decoder: any Decoder) throws {
-            jkt = try decoder.container(keyedBy: Member.self).value("jkt", or: "")
-        }
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: Member.self)
-        claims = try Claims(
-            issuer: c.value("iss", or: ""), subject: c.value("sub", or: ""), tenant: c.value("aud", or: ""),
-            id: c.value("jti", or: ""), issuedAt: c.value("iat", or: 0), expires: c.value("exp", or: 0),
-            thumbprint: c.value("cnf", or: WireConfirmation?.none)?.jkt ?? "",
-            grant: c.value("moqt", or: WireGrant?.none)?.grant ?? Grant(),
-            via: c.value("via", or: ""), e2ee: c.value("e2ee", or: "")
-        )
     }
 }
 

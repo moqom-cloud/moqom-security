@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
-use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::de::{self, DeserializeOwned, MapAccess, SeqAccess, Visitor};
 
 use crate::claims::Header;
 use crate::{
@@ -194,6 +194,26 @@ fn decode<T: for<'de> Deserialize<'de>>(segment: &[u8]) -> Result<T, Undecodable
     }
     serde_json::from_slice::<UniqueMembers>(&decoded).map_err(|_| Undecodable::Json)?;
     serde_json::from_slice(&decoded).map_err(|_| Undecodable::Json)
+}
+
+/// A value that must be a JSON object: serde reads a struct from an array as
+/// readily as from an object, and neither other implementation does.
+pub(crate) struct Object<T>(pub(crate) T);
+
+impl<'de, T: DeserializeOwned> Deserialize<'de> for Object<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let members = serde_json::Map::deserialize(deserializer)?;
+        T::deserialize(serde_json::Value::Object(members))
+            .map(Object)
+            .map_err(de::Error::custom)
+    }
+}
+
+/// For `deserialize_with`: a struct read only from a JSON object.
+pub(crate) fn object<'de, D: serde::Deserializer<'de>, T: DeserializeOwned>(
+    deserializer: D,
+) -> Result<T, D::Error> {
+    Object::deserialize(deserializer).map(|Object(value)| value)
 }
 
 /// JSON in which no object, at any depth, names a member twice. `serde_json`

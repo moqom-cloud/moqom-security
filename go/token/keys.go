@@ -184,7 +184,7 @@ func ParseJWKSet(document []byte) ([]PublicKey, error) {
 }
 
 func decodeJWKSet(document []byte) ([]jwk, error) {
-	if err := uniqueMembers(document); err != nil {
+	if err := strict(document); err != nil {
 		return nil, err
 	}
 	var entries []json.RawMessage
