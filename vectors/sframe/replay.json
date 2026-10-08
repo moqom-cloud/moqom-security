@@ -1,0 +1,647 @@
+{
+  "cases" : [
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-duplicate",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "800958cb46522a93cfd1d391faa01f3bce7c4f3c76100a08bce660f3bb12",
+          "pt_hex" : "00070e151c232a31383f464d"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "800958cb46522a93cfd1d391faa01f3bce7c4f3c76100a08bce660f3bb12"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-reordering-within-window",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "8309c53ed4a851a0aa877aa1e5aede0e9ed60b71a85d6b0543fed97d1e93",
+          "pt_hex" : "030a11181f262d343b424950"
+        },
+        {
+          "object_hex" : "81096234e09eac75190a8bcc2226009855d76aaf4d1ff3f3a76910b8f8a9",
+          "pt_hex" : "01080f161d242b323940474e"
+        },
+        {
+          "object_hex" : "800958cb46522a93cfd1d391faa01f3bce7c4f3c76100a08bce660f3bb12",
+          "pt_hex" : "00070e151c232a31383f464d"
+        },
+        {
+          "object_hex" : "870931a023dfcc171489c49bff85fbffcae78256d135f44c395556aac23d",
+          "pt_hex" : "070e151c232a31383f464d54"
+        },
+        {
+          "object_hex" : "82093ce8d0e82aece7870bb95802bc41f33339da6470948e5fb6edfc6b91",
+          "pt_hex" : "020910171e252c333a41484f"
+        },
+        {
+          "object_hex" : "86094a8e5b2799ecad2aa7681fad0b269cf9db000ec8569fddd7d9e8b391",
+          "pt_hex" : "060d141b222930373e454c53"
+        },
+        {
+          "object_hex" : "840982f9c1ce56a9e4d6e80368509a6fb053170666eda4c77dc089927b52",
+          "pt_hex" : "040b121920272e353c434a51"
+        },
+        {
+          "object_hex" : "8509eaba2c2520d4d7b62a021b3a87cfced5ffc1dac4b12a84b4bf66ab38",
+          "pt_hex" : "050c131a21282f363d444b52"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8509eaba2c2520d4d7b62a021b3a87cfced5ffc1dac4b12a84b4bf66ab38"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-window-64-edge",
+      "replay_window" : 64,
+      "steps" : [
+        {
+          "object_hex" : "8809645dd877f0fe806a3076d3f47afb66c9dbddffcadaf628cfb97dbf1897",
+          "pt_hex" : "646b727980878e959ca3aab1"
+        },
+        {
+          "object_hex" : "880925dc6554ba5407c374b23cc58b2df26630015e8150cc634a1788a734e1",
+          "pt_hex" : "252c333a41484f565d646b72"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "880924c3fa998d264c92acedd4c67de0650dc362c912cafa24e4196d3f95c0"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "880925dc6554ba5407c374b23cc58b2df26630015e8150cc634a1788a734e1"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-window-8-edge",
+      "replay_window" : 8,
+      "steps" : [
+        {
+          "object_hex" : "8809645dd877f0fe806a3076d3f47afb66c9dbddffcadaf628cfb97dbf1897",
+          "pt_hex" : "646b727980878e959ca3aab1"
+        },
+        {
+          "object_hex" : "88095d6f78fabd9fd57d509cb6ae6dc847a5134eff7b55dabed764d40ab1b3",
+          "pt_hex" : "5d646b727980878e959ca3aa"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "88095c0e81e5aadc3eedab9c02ee58d0b05b3c0a809f1efe70cee43a8335b6"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-window-capped-at-64",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "8809c807ab3b520c4680c099931ef6546362ec8a64954f5490c9f02b326d56",
+          "pt_hex" : "c8cfd6dde4ebf2f900070e15"
+        },
+        {
+          "object_hex" : "880989a72107baee1dfe350181f2f6c2d4320bb57cfdd2e8431873a2996bba",
+          "pt_hex" : "8990979ea5acb3bac1c8cfd6"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "88098869b8615345e7be53c104eb7a8d999182e91654fa3a5bb788a45bd3fa"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-jump-forward-clears-history",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "81096234e09eac75190a8bcc2226009855d76aaf4d1ff3f3a76910b8f8a9",
+          "pt_hex" : "01080f161d242b323940474e"
+        },
+        {
+          "object_hex" : "890901f44427b2a3227534b862eb3b231baf59b4600c862ec52a6e727aa9246c",
+          "pt_hex" : "f4fb020910171e252c333a41"
+        },
+        {
+          "object_hex" : "890901f398418acfa658a2579cbdf371faf8643bb0245d1c8aa52eaac0dfc4e4",
+          "pt_hex" : "f3fa01080f161d242b323940"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "890901f44427b2a3227534b862eb3b231baf59b4600c862ec52a6e727aa9246c"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "81096234e09eac75190a8bcc2226009855d76aaf4d1ff3f3a76910b8f8a9"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-forgery-does-not-consume-counter",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "error" : "authentication_failure",
+          "object_hex" : "8509efb1312a1ddfd2b12f791625c10818bf97b2ba5aa087c32fe889f993"
+        },
+        {
+          "object_hex" : "8509eaba2c2520d4d7b62a021b3a87cfced5ffc1dac4b12a84b4bf66ab38",
+          "pt_hex" : "050c131a21282f363d444b52"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8509eaba2c2520d4d7b62a021b3a87cfced5ffc1dac4b12a84b4bf66ab38"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-top-of-counter-space",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "8f09fffffffffffffffe425341ece4e757ef03beb109b55624616e4be5685ea7cf4de6f54422",
+          "pt_hex" : "fe050c131a21282f363d444b"
+        },
+        {
+          "object_hex" : "8f09ffffffffffffffff6063f4fb736a22d8c2cd6ebd5b2bc8ae7b9b102cc7463faee7411f87",
+          "pt_hex" : "ff060d141b222930373e454c"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8f09ffffffffffffffff6063f4fb736a22d8c2cd6ebd5b2bc8ae7b9b102cc7463faee7411f87"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-duplicate",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "80090597e14efbd7c5d581e75ecf17468ec8d546d07aa90434c5d0f89dad",
+          "pt_hex" : "00070e151c232a31383f464d"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "80090597e14efbd7c5d581e75ecf17468ec8d546d07aa90434c5d0f89dad"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-reordering-within-window",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "8309721b0f74b72ef37f8fb50a3fd96cc4647e0431f5c86bbb666a8e1464",
+          "pt_hex" : "030a11181f262d343b424950"
+        },
+        {
+          "object_hex" : "8109806b23a59b316b05fc0c342c1a91680cd130c452fe8b4b3079579185",
+          "pt_hex" : "01080f161d242b323940474e"
+        },
+        {
+          "object_hex" : "80090597e14efbd7c5d581e75ecf17468ec8d546d07aa90434c5d0f89dad",
+          "pt_hex" : "00070e151c232a31383f464d"
+        },
+        {
+          "object_hex" : "870927bdb21d3142d445bc05aec4e64646194a3271484ce2596e09735bfb",
+          "pt_hex" : "070e151c232a31383f464d54"
+        },
+        {
+          "object_hex" : "8209d5630fa493f1105ef97ce0f78a0d37bf9b10f9a32b91f7968664a1e7",
+          "pt_hex" : "020910171e252c333a41484f"
+        },
+        {
+          "object_hex" : "86097d82b9eff518b28814dc5426e5b4c580b764a9625f84fabd3ea5692c",
+          "pt_hex" : "060d141b222930373e454c53"
+        },
+        {
+          "object_hex" : "84091593dc45f7b8664a3a4c7fa724340ffec79ac9530d8d1371eabf719a",
+          "pt_hex" : "040b121920272e353c434a51"
+        },
+        {
+          "object_hex" : "8509066707a17c98bdefba5b0bf6fc0f61cc4034cc13c6b00f13ab4d9665",
+          "pt_hex" : "050c131a21282f363d444b52"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8509066707a17c98bdefba5b0bf6fc0f61cc4034cc13c6b00f13ab4d9665"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-window-64-edge",
+      "replay_window" : 64,
+      "steps" : [
+        {
+          "object_hex" : "8809641a37e751a3e157e9cb3d932b84c84237ab4992a907fedb602172f63f",
+          "pt_hex" : "646b727980878e959ca3aab1"
+        },
+        {
+          "object_hex" : "88092598c8f04bda9eaedc9ae7e2c54e738a58b5244c889c6a81cdc2db4786",
+          "pt_hex" : "252c333a41484f565d646b72"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "880924b2699d28304f71278626e34b7bd657762b1547bc143d679c515d8ce6"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "88092598c8f04bda9eaedc9ae7e2c54e738a58b5244c889c6a81cdc2db4786"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-window-8-edge",
+      "replay_window" : 8,
+      "steps" : [
+        {
+          "object_hex" : "8809641a37e751a3e157e9cb3d932b84c84237ab4992a907fedb602172f63f",
+          "pt_hex" : "646b727980878e959ca3aab1"
+        },
+        {
+          "object_hex" : "88095d4136baa46f046da24e45c1cbf8f13bea91595f6213a47b3064022562",
+          "pt_hex" : "5d646b727980878e959ca3aa"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "88095ca7012d26cd84f1bb370bc9f80af95ae3049551916614f3dbe48958a3"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-window-capped-at-64",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "8809c890d213ac7d6bdc8c0fd3d622ecdd221213a74c1529ba7f57eda6231c",
+          "pt_hex" : "c8cfd6dde4ebf2f900070e15"
+        },
+        {
+          "object_hex" : "88098963ec4e5712be896cbc34a668685dceb5a5e7fdff431ba8e15d964d6d",
+          "pt_hex" : "8990979ea5acb3bac1c8cfd6"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "880988082d0d4d10256af4f7b2b265d942945856d9578b493408245eec8aa6"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-jump-forward-clears-history",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "8109806b23a59b316b05fc0c342c1a91680cd130c452fe8b4b3079579185",
+          "pt_hex" : "01080f161d242b323940474e"
+        },
+        {
+          "object_hex" : "890901f46f648e22ba792f1508baa53651e371d0bb3a0abb0b92c44f6ccb7dd6",
+          "pt_hex" : "f4fb020910171e252c333a41"
+        },
+        {
+          "object_hex" : "890901f36f4ef84f9d8a2c2b276606493a80f9ccf3926df7f2a0f036b8029cfd",
+          "pt_hex" : "f3fa01080f161d242b323940"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "890901f46f648e22ba792f1508baa53651e371d0bb3a0abb0b92c44f6ccb7dd6"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8109806b23a59b316b05fc0c342c1a91680cd130c452fe8b4b3079579185"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-forgery-does-not-consume-counter",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "error" : "authentication_failure",
+          "object_hex" : "8509036c1aae4193b8e8bf2006e9e3ea8e9c1d42c625bfbe022b32df23fd"
+        },
+        {
+          "object_hex" : "8509066707a17c98bdefba5b0bf6fc0f61cc4034cc13c6b00f13ab4d9665",
+          "pt_hex" : "050c131a21282f363d444b52"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8509066707a17c98bdefba5b0bf6fc0f61cc4034cc13c6b00f13ab4d9665"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-top-of-counter-space",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "8f09fffffffffffffffe215c860d6688cc65ac57f37b9cbcca41af192d9f219218f2917d54ce",
+          "pt_hex" : "fe050c131a21282f363d444b"
+        },
+        {
+          "object_hex" : "8f09ffffffffffffffff8748ec096f55f70c36de6824e794dd06cfda6a836e717d391f70f763",
+          "pt_hex" : "ff060d141b222930373e454c"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8f09ffffffffffffffff8748ec096f55f70c36de6824e794dd06cfda6a836e717d391f70f763"
+        }
+      ]
+    }
+  ],
+  "description" : "Replay window: one context with the given window opens each object in order, and each either opens or fails as stated.",
+  "library" : "moqom-sframe",
+  "source" : "Generated by the Swift MoqomSFrame implementation: Tests/MoqomSFrameTests/VectorGenerator.swift"
+}

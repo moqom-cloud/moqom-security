@@ -1,0 +1,288 @@
+{
+  "cases" : [
+    {
+      "encoded_hex" : "00000000",
+      "metadata" : {
+        "group" : 0,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+
+        ]
+      },
+      "name" : "bare"
+    },
+    {
+      "encoded_hex" : "050240024078800f42400201",
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "video"
+    },
+    {
+      "encoded_hex" : "412c00000340788000825601280910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a040a766964656f2f37323070",
+      "metadata" : {
+        "group" : 300,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+          {
+            "bytes_hex" : "0910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a",
+            "type" : 121
+          },
+          {
+            "integer" : 33366,
+            "type" : 120
+          },
+          {
+            "bytes_hex" : "766964656f2f37323070",
+            "type" : 125
+          }
+        ]
+      },
+      "name" : "keyframe"
+    },
+    {
+      "encoded_hex" : "3f3fff00",
+      "metadata" : {
+        "group" : 63,
+        "object" : 63,
+        "priority" : 255,
+        "properties" : [
+
+        ]
+      },
+      "name" : "varint-1-byte-max"
+    },
+    {
+      "encoded_hex" : "40407fff0100",
+      "metadata" : {
+        "group" : 64,
+        "object" : 16383,
+        "priority" : 1,
+        "properties" : [
+
+        ]
+      },
+      "name" : "varint-2-byte"
+    },
+    {
+      "encoded_hex" : "80004000bfffffff0200",
+      "metadata" : {
+        "group" : 16384,
+        "object" : 1073741823,
+        "priority" : 2,
+        "properties" : [
+
+        ]
+      },
+      "name" : "varint-4-byte"
+    },
+    {
+      "encoded_hex" : "c000000040000000ffffffffffffffff0300",
+      "metadata" : {
+        "group" : 1073741824,
+        "object" : 4611686018427387903,
+        "priority" : 3,
+        "properties" : [
+
+        ]
+      },
+      "name" : "varint-8-byte"
+    },
+    {
+      "encoded_hex" : "0101010340780902020201",
+      "metadata" : {
+        "group" : 1,
+        "object" : 1,
+        "priority" : 1,
+        "properties" : [
+          {
+            "integer" : 2,
+            "type" : 122
+          },
+          {
+            "integer" : 9,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 124
+          }
+        ]
+      },
+      "name" : "properties-sorted-by-type"
+    },
+    {
+      "encoded_hex" : "010203034078040701bb0001aa",
+      "metadata" : {
+        "group" : 1,
+        "object" : 2,
+        "priority" : 3,
+        "properties" : [
+          {
+            "bytes_hex" : "bb",
+            "type" : 127
+          },
+          {
+            "integer" : 4,
+            "type" : 120
+          },
+          {
+            "bytes_hex" : "aa",
+            "type" : 127
+          }
+        ]
+      },
+      "name" : "repeated-type-keeps-order"
+    },
+    {
+      "encoded_hex" : "01000001407900",
+      "metadata" : {
+        "group" : 1,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+          {
+            "bytes_hex" : "",
+            "type" : 121
+          }
+        ]
+      },
+      "name" : "empty-bytes-property"
+    },
+    {
+      "encoded_hex" : "02000001407d412c00070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d",
+      "metadata" : {
+        "group" : 2,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+          {
+            "bytes_hex" : "00070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d",
+            "type" : 125
+          }
+        ]
+      },
+      "name" : "bytes-property-2-byte-length"
+    },
+    {
+      "encoded_hex" : "000000021001ffffffffffffffeeffffffffffffffff",
+      "metadata" : {
+        "group" : 0,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+          {
+            "integer" : 1,
+            "type" : 16
+          },
+          {
+            "integer" : 4611686018427387903,
+            "type" : 4611686018427387902
+          }
+        ]
+      },
+      "name" : "large-type-delta"
+    },
+    {
+      "error" : "invalid_metadata",
+      "metadata" : {
+        "group" : 0,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+          {
+            "bytes_hex" : "01",
+            "type" : 120
+          }
+        ]
+      },
+      "name" : "even-type-with-bytes"
+    },
+    {
+      "error" : "invalid_metadata",
+      "metadata" : {
+        "group" : 0,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+          {
+            "integer" : 1,
+            "type" : 121
+          }
+        ]
+      },
+      "name" : "odd-type-with-integer"
+    },
+    {
+      "error" : "invalid_metadata",
+      "metadata" : {
+        "group" : 4611686018427387904,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+
+        ]
+      },
+      "name" : "group-beyond-varint"
+    },
+    {
+      "error" : "invalid_metadata",
+      "metadata" : {
+        "group" : 0,
+        "object" : 18446744073709551615,
+        "priority" : 0,
+        "properties" : [
+
+        ]
+      },
+      "name" : "object-beyond-varint"
+    },
+    {
+      "error" : "invalid_metadata",
+      "metadata" : {
+        "group" : 0,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+          {
+            "integer" : 4611686018427387904,
+            "type" : 120
+          }
+        ]
+      },
+      "name" : "integer-beyond-varint"
+    },
+    {
+      "error" : "invalid_metadata",
+      "metadata" : {
+        "group" : 0,
+        "object" : 0,
+        "priority" : 0,
+        "properties" : [
+          {
+            "integer" : 0,
+            "type" : 4611686018427387904
+          }
+        ]
+      },
+      "name" : "type-beyond-varint"
+    }
+  ],
+  "description" : "The canonical encoding of MoQ object metadata bound into the AEAD tag, and metadata that has none.",
+  "library" : "moqom-sframe",
+  "source" : "Generated by the Swift MoqomSFrame implementation: Tests/MoqomSFrameTests/VectorGenerator.swift"
+}

@@ -1,6 +1,7 @@
 [package]
 name = "moqom-sframe"
 version = "0.1.0"
+description = "SFrame (RFC 9605) for MoQ objects: AES-GCM, sender-owned counters, object metadata bound into the tag, replay window"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -8,3 +9,8 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+aws-lc-rs = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
