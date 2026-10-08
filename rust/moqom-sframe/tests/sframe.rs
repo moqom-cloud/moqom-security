@@ -194,6 +194,31 @@ fn track_is_bound() {
 }
 
 #[test]
+fn rekey_same_key_resumes() {
+    let (key5, key6) = (key(5, &[0x2A; 32]), key(6, &[0x2A; 32]));
+    let sender = Sender::new(key5.clone());
+    let mut counters = vec![];
+    let mut seal = |s: &Sender| {
+        counters.push(
+            Header::read(&s.protect_raw(&[], &[]).unwrap())
+                .unwrap()
+                .0
+                .counter,
+        )
+    };
+    seal(&sender);
+    seal(&sender);
+    sender.rekey(key5.clone());
+    seal(&sender);
+    sender.clear_key();
+    sender.rekey(key6);
+    seal(&sender);
+    sender.rekey(key5);
+    seal(&sender);
+    assert_eq!(counters, [0, 1, 2, 0, 3]);
+}
+
+#[test]
 fn base_key_length() {
     for suite in CipherSuite::ALL {
         for length in [0, 16, 32, 48] {

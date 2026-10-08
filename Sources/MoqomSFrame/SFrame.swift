@@ -358,12 +358,17 @@ public struct SFrameKey: Sendable {
 /// has never sealed before: a new MLS epoch, or a fresh random KID.
 ///
 /// Managed key management rotates the key in place with ``rekey(_:)``. The
-/// counter restarts with each key, which is safe because the nonce is the
-/// key's own salt XOR the counter and the key is new.
+/// counter starts at 0 for a KID this sender has not sealed under, which is
+/// safe because the nonce is the key's own salt XOR the counter and the key is
+/// new. For a KID it has sealed under, the counter carries on where it stopped,
+/// so installing the same key again, or going back to it after
+/// ``clearKey()``, never reissues a counter.
 public final class SFrameSender: @unchecked Sendable {
     private let lock = NSLock()
     private var current: SFrameKey?
     private var counter: UInt64 = 0
+    /// The next counter for each KID this sender has sealed under before.
+    private var resume: [UInt64: UInt64] = [:]
 
     public init(key: SFrameKey) {
         current = key
@@ -390,9 +395,15 @@ public final class SFrameSender: @unchecked Sendable {
     /// decrypt for as long as receivers hold the old key.
     public func rekey(_ key: SFrameKey) {
         lock.withLock {
+            park()
             current = key
-            counter = 0
+            counter = resume[key.keyID] ?? 0
         }
+    }
+
+    /// Remember where the current key's counter stopped. Under the lock.
+    private func park() {
+        if let current { resume[current.keyID] = max(resume[current.keyID] ?? 0, counter) }
     }
 
     /// Go back to having no key, so frames are refused rather than sealed.
@@ -402,6 +413,7 @@ public final class SFrameSender: @unchecked Sendable {
     /// would keep using a key the group has finished with.
     public func clearKey() {
         lock.withLock {
+            park()
             current = nil
             counter = 0
         }

@@ -6,6 +6,7 @@ package sframe
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -212,5 +213,32 @@ func TestConcurrentDuplicatesOpenOnce(t *testing.T) {
 		if opened.Load() != 1 {
 			t.Fatalf("opened %d times", opened.Load())
 		}
+	}
+}
+
+func TestRekeySameKeyResumes(t *testing.T) {
+	key, _ := NewKey(5, bytes.Repeat([]byte{0x2A}, 32), AES256GCMSHA512)
+	other, _ := NewKey(6, bytes.Repeat([]byte{0x2A}, 32), AES256GCMSHA512)
+	s := NewSender(key)
+	var counters []uint64
+	seal := func() {
+		sealed, err := s.ProtectRaw(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h, _, _ := ReadHeader(sealed)
+		counters = append(counters, h.Counter)
+	}
+	seal()
+	seal()
+	s.Rekey(key)
+	seal()
+	s.ClearKey()
+	s.Rekey(other)
+	seal()
+	s.Rekey(key)
+	seal()
+	if !slices.Equal(counters, []uint64{0, 1, 2, 0, 3}) {
+		t.Fatal(counters)
 	}
 }

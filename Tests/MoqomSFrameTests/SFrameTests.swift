@@ -194,6 +194,24 @@ struct SFrameProtectionTests {
         #expect(try receiver.unprotect(sealed, metadata: metadata) == Data([0xAB]))
     }
 
+    @Test("installing a key again carries its counter on")
+    func rekeySameKeyResumes() throws {
+        let key = try SFrameKey(keyID: 5, baseKey: Data(repeating: 0x2A, count: 32))
+        let other = try SFrameKey(keyID: 6, baseKey: Data(repeating: 0x2A, count: 32))
+        let sender = SFrameSender(key: key)
+        var counters: [UInt64] = []
+        func seal() throws { counters.append(try SFrameHeader.read(from: sender.protectRaw(Data(), aad: Data())).0.counter) }
+        try seal(); try seal()
+        sender.rekey(key)
+        try seal()
+        sender.clearKey()
+        sender.rekey(other)
+        try seal()
+        sender.rekey(key)
+        try seal()
+        #expect(counters == [0, 1, 2, 0, 3])
+    }
+
     @Test("a base key of the wrong length is refused")
     func baseKeyLength() throws {
         for suite in SFrameCipherSuite.allCases {

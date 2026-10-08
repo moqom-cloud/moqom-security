@@ -16,16 +16,46 @@ use crate::{Error, Header, Key, Metadata};
 /// second sender, on a second device, or in the same process after a restart —
 /// repeats nonces. Every new sender needs a base key or KID that has never
 /// sealed before: a new MLS epoch, or a fresh random KID.
+///
+/// [`Sender::rekey`] starts the counter at 0 for a KID this sender has not
+/// sealed under. For one it has, the counter carries on where it stopped, so
+/// installing the same key again, or going back to it after
+/// [`Sender::clear_key`], never reissues a counter.
 #[derive(Debug, Default)]
 pub struct Sender {
-    state: Mutex<(Option<Arc<Key>>, u64)>,
+    state: Mutex<SenderState>,
+}
+
+#[derive(Debug, Default)]
+struct SenderState {
+    current: Option<Arc<Key>>,
+    counter: u64,
+    /// The next counter for each KID sealed under before.
+    resume: HashMap<u64, u64>,
+}
+
+impl SenderState {
+    fn switch(&mut self, key: Option<Key>) {
+        if let Some(current) = &self.current {
+            let next = self.resume.entry(current.key_id()).or_default();
+            *next = (*next).max(self.counter);
+        }
+        self.counter = key
+            .as_ref()
+            .and_then(|k| self.resume.get(&k.key_id()).copied())
+            .unwrap_or(0);
+        self.current = key.map(Arc::new);
+    }
 }
 
 impl Sender {
     #[must_use]
     pub fn new(key: Key) -> Self {
         Self {
-            state: Mutex::new((Some(Arc::new(key)), 0)),
+            state: Mutex::new(SenderState {
+                current: Some(Arc::new(key)),
+                ..SenderState::default()
+            }),
         }
     }
 
@@ -41,24 +71,34 @@ impl Sender {
         self.state
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .0
+            .current
             .clone()
     }
 
     /// Counters issued under the current key.
     #[must_use]
     pub fn issued_counters(&self) -> u64 {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner).1
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .counter
     }
 
-    /// Switch to a new key and restart the counter.
+    /// Switch to a new key. Objects already sealed keep their old KID and open
+    /// for as long as receivers hold the old key.
     pub fn rekey(&self, key: Key) {
-        *self.state.lock().unwrap_or_else(PoisonError::into_inner) = (Some(Arc::new(key)), 0);
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .switch(Some(key));
     }
 
     /// Go back to refusing to encrypt.
     pub fn clear_key(&self) {
-        *self.state.lock().unwrap_or_else(PoisonError::into_inner) = (None, 0);
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .switch(None);
     }
 
     /// Encrypt one MoQ object, binding its track, position and properties into
@@ -81,12 +121,12 @@ impl Sender {
     pub fn protect_raw(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, Error> {
         let (key, issued) = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            let key = state.0.clone().ok_or(Error::NoKey)?;
-            let issued = state.1;
+            let key = state.current.clone().ok_or(Error::NoKey)?;
+            let issued = state.counter;
             if issued == u64::MAX {
                 return Err(Error::CounterExhausted);
             }
-            state.1 += 1;
+            state.counter += 1;
             (key, issued)
         };
         let mut out = Header {

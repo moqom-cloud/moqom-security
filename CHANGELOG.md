@@ -12,7 +12,10 @@ The first release.
 - Mints and verifies MOQOM join tokens as compact JWS signed with ML-DSA-65 (FIPS 204), with
   tenant, room, grants, expiry, device binding (`cnf.jkt`) and key rotation by key ID.
 - Verifies Ed25519 tokens signed before the move to ML-DSA-65; never signs them.
-- Refuses tokens whose header or claims repeat a member name.
+- Refuses tokens whose header or claims repeat a member name, and tokens whose `cnf.jkt` is not
+  an RFC 7638 SHA-256 thumbprint (43 characters of canonical base64url).
+- Reads JWK sets alike in all three languages and refuses one that names a key ID twice. Loading
+  errors are typed: `set_malformed`, `key_unsupported`, `key_invalid` and `duplicate_kid`.
 
 ### moqom-proof
 
@@ -24,8 +27,13 @@ The first release.
 
 ### moqom-sframe
 
-- Seals and opens MoQ objects with RFC 9605 SFrame, binding the object's position, priority and
-  properties into the tag as draft-ietf-moq-secure-objects describes.
+- Seals and opens MoQ objects with RFC 9605 SFrame. The AAD after the RFC 9605 header binds the
+  object's full track name (as draft-ietf-moq-secure-objects serializes it), group ID, object ID,
+  publisher priority and properties: the same fields draft-ietf-moq-secure-objects authenticates,
+  in RFC 9605 framing rather than the draft's own format. An object moved to another track, or
+  with any of those fields changed, does not open.
+- Refuses base keys that are not the cipher suite's key length.
+- A sender never reissues a counter under a KID, including after rekeying back to it.
 - A replay window of 1,024 counters by default, configurable up to 65,536.
 
 ### moqom-mls

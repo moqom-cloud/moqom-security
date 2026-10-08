@@ -248,10 +248,16 @@ func (k *Key) open(ciphertext []byte, counter uint64, aad []byte) ([]byte, error
 // second sender, on a second device, or in the same process after a restart —
 // repeats nonces. Every new sender needs a base key or KID that has never
 // sealed before: a new MLS epoch, or a fresh random KID.
+//
+// Rekey starts the counter at 0 for a KID this sender has not sealed under.
+// For one it has, the counter carries on where it stopped, so installing the
+// same key again, or going back to it after ClearKey, never reissues a
+// counter.
 type Sender struct {
 	mu      sync.Mutex
 	current *Key
 	counter uint64
+	resume  map[uint64]uint64 // the next counter for each KID sealed under before
 }
 
 // NewSender returns a sender under key, or with no key if key is nil, which
@@ -272,11 +278,20 @@ func (s *Sender) IssuedCounters() uint64 {
 	return s.counter
 }
 
-// Rekey switches to a new key and restarts the counter.
+// Rekey switches to a new key, or to none if key is nil.
 func (s *Sender) Rekey(key *Key) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.current != nil {
+		if s.resume == nil {
+			s.resume = map[uint64]uint64{}
+		}
+		s.resume[s.current.keyID] = max(s.resume[s.current.keyID], s.counter)
+	}
 	s.current, s.counter = key, 0
+	if key != nil {
+		s.counter = s.resume[key.keyID]
+	}
 }
 
 // ClearKey goes back to refusing to encrypt.
