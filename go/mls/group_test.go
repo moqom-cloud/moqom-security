@@ -6,6 +6,7 @@ package mls
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -30,7 +31,7 @@ func TestGroupRoundTrip(t *testing.T) {
 			alice = add.Next
 			for _, g := range []*Group{bobGroup, carolGroup} {
 				if !bytes.Equal(g.EpochAuthenticator(), alice.EpochAuthenticator()) ||
-					!bytes.Equal(g.Exporter(SFrameExporterLabel, nil, 16), alice.Exporter(SFrameExporterLabel, nil, 16)) {
+					!bytes.Equal(must[[]byte](t)(g.Exporter(SFrameExporterLabel, nil, 16)), must[[]byte](t)(alice.Exporter(SFrameExporterLabel, nil, 16))) {
 					t.Fatal("joiners disagree with the founder")
 				}
 			}
@@ -72,5 +73,34 @@ func TestAudienceRoundTrip(t *testing.T) {
 	}
 	if _, err := SealAudience(base, public[:32], []byte("g"), 3); err == nil {
 		t.Fatal("sealed to an X25519-sized key")
+	}
+}
+
+func TestExporterLength(t *testing.T) {
+	for _, suite := range []CipherSuite{SuiteMLDSA, SuiteXWing, SuiteX25519} {
+		t.Run(suite.Name(), func(t *testing.T) {
+			g := must[*Group](t)(CreateGroup([]byte("g"), must[*KeyPackageBundle](t)(GenerateKeyPackage("alice", suite))))
+			limit := 255 * suite.HashLength()
+			if out, err := g.Exporter("x", nil, limit); err != nil || len(out) != limit {
+				t.Fatalf("at the limit: %d bytes, %v", len(out), err)
+			}
+			for _, length := range []int{limit + 1, 1 << 16, -1} {
+				out, err := g.Exporter("x", nil, length)
+				if !errors.Is(err, ErrInvalidLength) || Class(err) != "invalid-length" || out != nil {
+					t.Errorf("length %d: %v", length, err)
+				}
+			}
+		})
+	}
+}
+
+func TestClass(t *testing.T) {
+	for _, c := range classes {
+		if got := Class(fmt.Errorf("%w: detail", c.err)); got != c.class {
+			t.Errorf("%v: %q, want %q", c.err, got, c.class)
+		}
+	}
+	if Class(nil) != "" || Class(errors.New("other")) != "" {
+		t.Error("an error outside every class has one")
 	}
 }

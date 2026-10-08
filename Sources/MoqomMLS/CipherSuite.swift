@@ -569,8 +569,6 @@ public enum MLSError: Error, Hashable, Sendable {
     case invalidProposal
     /// The message is from someone who is not a member.
     case unknownSender
-    /// This member has been removed and can no longer follow the group.
-    case removed
     /// Nothing in the message was addressed to this member.
     case notAddressed
     /// A key package whose keys are the wrong size or shape for its suite.
@@ -581,6 +579,30 @@ public enum MLSError: Error, Hashable, Sendable {
     /// A group never mixes suites: a device in another suite publishes new key
     /// packages in the group's before it can be added.
     case cipherSuiteMismatch(group: UInt16, other: UInt16)
+    /// An exporter length that is negative or past HKDF-Expand's limit of 255
+    /// times the suite's hash length.
+    case invalidLength(length: Int, maximum: Int)
+
+    /// The failure class the shared vectors and the Go and Rust libraries
+    /// name this error with.
+    public var errorClass: String {
+        switch self {
+        case .malformed: "malformed"
+        case .badSignature: "bad-signature"
+        case .confirmationMismatch: "confirmation-mismatch"
+        case .decryptionFailed: "decryption-failed"
+        case .cryptoFailure: "crypto-failure"
+        case .wrongEpoch: "wrong-epoch"
+        case .wrongGroup: "wrong-group"
+        case .invalidProposal: "invalid-proposal"
+        case .unknownSender: "unknown-sender"
+        case .notAddressed: "not-addressed"
+        case .invalidKeyPackage: "invalid-key-package"
+        case .unsupported: "unsupported"
+        case .cipherSuiteMismatch: "cipher-suite-mismatch"
+        case .invalidLength: "invalid-length"
+        }
+    }
 }
 
 // MARK: - Encoding

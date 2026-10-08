@@ -19,7 +19,7 @@ let bob = KeyPackageBundle::generate("bob/laptop", CipherSuite::FOUNDING)?;
 let add = Group::create(b"acme/room-42", &alice)?.commit(&[bob.key_package.clone()], &[])?;
 let bob_group = Group::join(add.welcome.as_ref().unwrap(), &bob)?;
 assert_eq!(add.next.epoch_authenticator(), bob_group.epoch_authenticator());
-let base_key = bob_group.exporter(SFRAME_EXPORTER_LABEL, &[], 32);
+let base_key = bob_group.exporter(SFRAME_EXPORTER_LABEL, &[], 32)?;
 ```
 
 It is not a general MLS implementation: members are a flat list rather than a

@@ -149,7 +149,7 @@ func generateXWingCrypto(t *testing.T) []map[string]any {
 	}
 }
 
-func state(g *Group) map[string]any {
+func state(t *testing.T, g *Group) map[string]any {
 	members := []any{}
 	for _, leaf := range g.Members() {
 		if leaf == nil {
@@ -162,8 +162,8 @@ func state(g *Group) map[string]any {
 		"epoch": g.Epoch(), "own_leaf": g.OwnLeaf(), "members": members,
 		"epoch_authenticator_hex": hex.EncodeToString(g.EpochAuthenticator()),
 		"exporters": []map[string]any{
-			{"label": SFrameExporterLabel, "context_hex": "", "length": 32, "out_hex": hex.EncodeToString(g.Exporter(SFrameExporterLabel, nil, 32))},
-			{"label": "MOQOM direct offer", "context_hex": "", "length": 32, "out_hex": hex.EncodeToString(g.Exporter("MOQOM direct offer", nil, 32))},
+			{"label": SFrameExporterLabel, "context_hex": "", "length": 32, "out_hex": hex.EncodeToString(must[[]byte](t)(g.Exporter(SFrameExporterLabel, nil, 32)))},
+			{"label": "MOQOM direct offer", "context_hex": "", "length": 32, "out_hex": hex.EncodeToString(must[[]byte](t)(g.Exporter("MOQOM direct offer", nil, 32)))},
 		},
 	}
 }
@@ -211,25 +211,25 @@ func generateGroup(t *testing.T) []map[string]any {
 	addBob := commit(alice.Commit([]*KeyPackage{bob.KeyPackage}, nil))
 	alice = addBob.Next
 	bobGroup := group(Join(addBob.Welcome, bob))
-	steps = append(steps, map[string]any{"welcome_hex": hex.EncodeToString(addBob.Welcome.Encode()), "expect": state(bobGroup)})
+	steps = append(steps, map[string]any{"welcome_hex": hex.EncodeToString(addBob.Welcome.Encode()), "expect": state(t, bobGroup)})
 
 	addTwo := commit(alice.Commit([]*KeyPackage{carol.KeyPackage, dave.KeyPackage}, nil))
 	alice = addTwo.Next
 	bobGroup = advance(t, bobGroup, addTwo.Message)
-	steps = append(steps, map[string]any{"commit_hex": hex.EncodeToString(addTwo.Message.Encode()), "expect": state(bobGroup)})
+	steps = append(steps, map[string]any{"commit_hex": hex.EncodeToString(addTwo.Message.Encode()), "expect": state(t, bobGroup)})
 	carolGroup := group(Join(addTwo.Welcome, carol))
 
 	update := commit(carolGroup.Commit(nil, nil))
 	carolGroup = update.Next
 	alice = advance(t, alice, update.Message)
 	bobGroup = advance(t, bobGroup, update.Message)
-	steps = append(steps, map[string]any{"commit_hex": hex.EncodeToString(update.Message.Encode()), "expect": state(bobGroup)})
+	steps = append(steps, map[string]any{"commit_hex": hex.EncodeToString(update.Message.Encode()), "expect": state(t, bobGroup)})
 
 	daveLeaf, _ := alice.LeafOf("dave/d")
 	removeDave := commit(alice.Commit(nil, []uint32{daveLeaf}))
 	carolGroup = advance(t, carolGroup, removeDave.Message)
 	bobGroup = advance(t, bobGroup, removeDave.Message)
-	steps = append(steps, map[string]any{"commit_hex": hex.EncodeToString(removeDave.Message.Encode()), "expect": state(bobGroup)})
+	steps = append(steps, map[string]any{"commit_hex": hex.EncodeToString(removeDave.Message.Encode()), "expect": state(t, bobGroup)})
 
 	bobLeaf, _ := carolGroup.LeafOf("bob/b")
 	removeBob := commit(carolGroup.Commit(nil, []uint32{bobLeaf}))

@@ -40,7 +40,7 @@ struct ExamplesTests {
         #expect(aliceGroup.epoch == 2 && bobGroup.epoch == 2)
         #expect(aliceGroup.epochAuthenticator == bobGroup.epochAuthenticator)
         #expect(aliceGroup.sframeBaseKey(suite: .aes256GcmSha512)
-            == bobGroup.exporter(label: "SFrame 1.0 Base Key", length: 32))
+            == (try bobGroup.exporter(label: "SFrame 1.0 Base Key", length: 32)))
 
         // Alice sends under her own KID; Bob holds every member's key.
         let sender = SFrameSender(key: aliceGroup.sframeKey(for: aliceGroup.ownLeaf, suite: .aes256GcmSha512))

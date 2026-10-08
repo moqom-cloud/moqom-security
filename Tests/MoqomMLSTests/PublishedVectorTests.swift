@@ -68,7 +68,7 @@ struct PublishedVectorTests {
     }
 
     @Test("key-schedule: every epoch, every secret, the GroupContext and the exporter", arguments: try Vectors.cases("mlswg-key-schedule.json"))
-    func keySchedule(_ v: Vector) {
+    func keySchedule(_ v: Vector) throws {
         let suite = suite(v)
         var initSecret = v.hex("initial_init_secret")
         for (index, e) in v.objects("epochs").enumerated() {
@@ -102,7 +102,7 @@ struct PublishedVectorTests {
             // The label is a string that happens to look like hex, and is used
             // as its UTF-8 bytes rather than decoded.
             let x = e.object("exporter")
-            #expect(secrets.exporter(
+            #expect(try secrets.exporter(
                 label: x.string("label"), context: x.hex("context"), length: x.int("length")
             ) == x.hex("secret"), "exporter, epoch \(index)")
             initSecret = secrets.initSecret

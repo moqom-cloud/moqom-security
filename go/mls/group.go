@@ -342,8 +342,9 @@ func (g *Group) Members() []*Leaf { return slices.Clone(g.members) }
 // to know nobody is in the group that the other cannot see.
 func (g *Group) EpochAuthenticator() []byte { return g.secrets.EpochAuthenticator }
 
-// Exporter is MLS-Exporter, RFC 9420 §8.5, for this epoch.
-func (g *Group) Exporter(label string, context []byte, length int) []byte {
+// Exporter is MLS-Exporter, RFC 9420 §8.5, for this epoch. A length that is
+// negative or past 255 times the suite's hash length is ErrInvalidLength.
+func (g *Group) Exporter(label string, context []byte, length int) ([]byte, error) {
 	return g.secrets.Exporter(label, context, length)
 }
 
@@ -433,7 +434,7 @@ func (g *Group) Commit(adding []*KeyPackage, removing []uint32) (*PendingCommit,
 	}
 	own := next.leaf(g.ownLeaf)
 	if own == nil {
-		return nil, ErrRemoved
+		return nil, fmt.Errorf("%w: the committer is not a member", ErrUnknownSender)
 	}
 	next[g.ownLeaf] = &Leaf{Identity: own.Identity, SignatureKey: own.SignatureKey, EncryptionKey: encryptionKey}
 

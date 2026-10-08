@@ -11,6 +11,8 @@
 //! value in the commit that applies them; an empty commit is an Update, which
 //! refreshes the committer's leaf key.
 
+use core::fmt;
+
 use aws_lc_rs::constant_time;
 use zeroize::Zeroize;
 
@@ -315,6 +317,7 @@ impl Welcome {
 /// A commit that has been built and not yet accepted. The group does not move
 /// until the delivery service orders it first for its epoch; `next` is the
 /// state to adopt when it does.
+#[derive(Debug)]
 pub struct PendingCommit {
     pub message: CommitMessage,
     /// `None` when the commit adds nobody.
@@ -325,6 +328,7 @@ pub struct PendingCommit {
 }
 
 /// What processing a commit did to this member.
+#[derive(Debug)]
 pub enum Processed {
     /// The next epoch.
     Advanced(Box<Group>),
@@ -349,6 +353,29 @@ impl Drop for Group {
     fn drop(&mut self) {
         self.encryption_private.zeroize();
         self.signature_private.zeroize();
+    }
+}
+
+/// Names the group, epoch and members; the epoch secrets, private keys and
+/// transcript hash are redacted.
+impl fmt::Debug for Group {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let members: Vec<_> = self
+            .members
+            .iter()
+            .map(|leaf| {
+                leaf.as_ref()
+                    .map(|leaf| String::from_utf8_lossy(&leaf.identity))
+            })
+            .collect();
+        f.debug_struct("Group")
+            .field("group_id", &self.group_id())
+            .field("epoch", &self.epoch())
+            .field("cipher_suite", &self.cipher_suite())
+            .field("own_leaf", &self.own_leaf)
+            .field("members", &members)
+            .field("secrets", &"<redacted>")
+            .finish_non_exhaustive()
     }
 }
 
@@ -416,8 +443,11 @@ impl Group {
     }
 
     /// MLS-Exporter, RFC 9420 §8.5, for this epoch.
-    #[must_use]
-    pub fn exporter(&self, label: &str, context: &[u8], length: usize) -> Vec<u8> {
+    ///
+    /// # Errors
+    /// As [`EpochSecrets::exporter`]: [`Error::InvalidLength`] past 255 times
+    /// the suite's hash length.
+    pub fn exporter(&self, label: &str, context: &[u8], length: usize) -> Result<Vec<u8>> {
         self.secrets.exporter(label, context, length)
     }
 
@@ -712,9 +742,17 @@ impl Group {
     /// group must be in the key package's suite.
     ///
     /// # Errors
-    /// [`Error::NotAddressed`], [`Error::DecryptionFailed`],
-    /// [`Error::CipherSuiteMismatch`], [`Error::BadSignature`] or
-    /// [`Error::ConfirmationMismatch`].
+    /// [`Error::Unsupported`] for a bundle in a suite not implemented, or a
+    /// GroupInfo in one or with GroupContext extensions;
+    /// [`Error::NotAddressed`] for a Welcome with no secret for this key
+    /// package, or a member list without its leaf;
+    /// [`Error::DecryptionFailed`] for a joiner secret or GroupInfo that does
+    /// not open; [`Error::Malformed`] for a GroupInfo that does not decode;
+    /// [`Error::CipherSuiteMismatch`] for a group in another suite;
+    /// [`Error::UnknownSender`] for a GroupInfo signed by a leaf that is not a
+    /// member; [`Error::BadSignature`] for a GroupInfo signature that does not
+    /// verify; [`Error::ConfirmationMismatch`] for a member list or
+    /// confirmation tag that does not match the GroupContext.
     pub fn join(welcome: &Welcome, bundle: &KeyPackageBundle) -> Result<Self> {
         let suite = bundle.key_package.cipher_suite;
         let reference = bundle.key_package.reference();

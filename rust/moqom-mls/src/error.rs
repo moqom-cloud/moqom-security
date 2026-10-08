@@ -31,6 +31,10 @@ pub enum Error {
     CipherSuiteMismatch { group: u16, key_package: u16 },
     #[error("crypto failure")]
     CryptoFailure,
+    /// An exporter length past HKDF-Expand's limit of 255 times the suite's
+    /// hash length.
+    #[error("invalid length: {length} bytes, at most {max}")]
+    InvalidLength { length: usize, max: usize },
 }
 
 impl Error {
@@ -51,6 +55,7 @@ impl Error {
             Self::NotAddressed => "not-addressed",
             Self::CipherSuiteMismatch { .. } => "cipher-suite-mismatch",
             Self::CryptoFailure => "crypto-failure",
+            Self::InvalidLength { .. } => "invalid-length",
         }
     }
 }

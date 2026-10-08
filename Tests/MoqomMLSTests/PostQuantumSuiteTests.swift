@@ -132,7 +132,7 @@ struct MLSPostQuantumSuiteTests {
         // SFrame keys from the epoch agree too.
         #expect(aliceNext.sframeKeys(suite: .aes256GcmSha512).map(\.keyID)
             == carolNext.sframeKeys(suite: .aes256GcmSha512).map(\.keyID))
-        #expect(aliceNext.exporter(label: "x", length: 32) == carolNext.exporter(label: "x", length: 32))
+        #expect(try aliceNext.exporter(label: "x", length: 32) == carolNext.exporter(label: "x", length: 32))
 
         // Alice removes Carol; Carol is told, Bob follows.
         let carolLeaf = try #require(aliceNext.leaf(of: "carol/c"))

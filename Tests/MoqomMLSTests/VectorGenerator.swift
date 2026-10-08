@@ -123,12 +123,12 @@ struct MLSVectorGenerator {
                 treeHash: fixed("tree hash \(epoch)", 48), confirmedTranscriptHash: confirmed
             )
             let secrets = MLSEpochSecrets.derive(initSecret: initSecret, commitSecret: commitSecret, context: context)
-            let exporters: [[String: Any]] = [
+            let exporters: [[String: Any]] = try [
                 ("SFrame 1.0 Base Key", Data(), 32), ("SFrame 1.0 Base Key", Data(), 16),
                 ("MOQOM direct offer", Data(), 32), ("label", fixed("exporter context", 20), 64),
             ].map { label, context, length in
                 ["label": label, "context_hex": context.hex, "length": length,
-                 "out_hex": secrets.exporter(label: label, context: context, length: length).hex]
+                 "out_hex": try secrets.exporter(label: label, context: context, length: length).hex]
             }
             epochs.append([
                 "commit_secret_hex": commitSecret.hex,
@@ -246,17 +246,17 @@ struct MLSVectorGenerator {
         )
     }
 
-    private func state(_ group: MLSGroup) -> [String: Any] {
+    private func state(_ group: MLSGroup) throws -> [String: Any] {
         [
             "epoch": Int(group.epoch),
             "own_leaf": Int(group.ownLeaf),
             "members": group.members.leaves.map { $0.map { $0.identityString as Any } ?? NSNull() },
             "epoch_authenticator_hex": group.epochAuthenticator.hex,
-            "exporters": [
+            "exporters": try [
                 ("SFrame 1.0 Base Key", Data(), 32), ("MOQOM direct offer", Data(), 32),
             ].map { label, context, length in
                 ["label": label, "context_hex": context.hex, "length": length,
-                 "out_hex": group.exporter(label: label, context: context, length: length).hex] as [String: Any]
+                 "out_hex": try group.exporter(label: label, context: context, length: length).hex] as [String: Any]
             },
         ]
     }
@@ -271,7 +271,7 @@ struct MLSVectorGenerator {
     }
 
     private func advanced(_ outcome: MLSCommitOutcome) throws -> MLSGroup {
-        guard case let .advanced(next) = outcome else { throw MLSError.removed }
+        guard case let .advanced(next) = outcome else { throw MLSError.notAddressed }
         return next
     }
 
@@ -298,15 +298,15 @@ struct MLSVectorGenerator {
         let addBob = try alice.commit(adding: [bob.keyPackage])
         alice = addBob.next
         var bobGroup = try MLSGroup.join(try #require(addBob.welcome), bundle: bob)
-        bobSteps.append(["welcome_hex": try #require(addBob.welcome).encoded.hex, "expect": state(bobGroup)])
+        bobSteps.append(["welcome_hex": try #require(addBob.welcome).encoded.hex, "expect": try state(bobGroup)])
 
         let addTwo = try alice.commit(adding: [carol.keyPackage, dave.keyPackage])
         alice = addTwo.next
         bobGroup = try advanced(try bobGroup.process(addTwo.message))
-        bobSteps.append(["commit_hex": addTwo.message.encoded.hex, "expect": state(bobGroup)])
+        bobSteps.append(["commit_hex": addTwo.message.encoded.hex, "expect": try state(bobGroup)])
         var carolGroup = try MLSGroup.join(try #require(addTwo.welcome), bundle: carol)
         var daveGroup = try MLSGroup.join(try #require(addTwo.welcome), bundle: dave)
-        daveSteps.append(["welcome_hex": try #require(addTwo.welcome).encoded.hex, "expect": state(daveGroup)])
+        daveSteps.append(["welcome_hex": try #require(addTwo.welcome).encoded.hex, "expect": try state(daveGroup)])
 
         // Carol rotates her leaf: an empty commit from a member who did not found.
         let update = try carolGroup.commit()
@@ -314,8 +314,8 @@ struct MLSVectorGenerator {
         alice = try advanced(try alice.process(update.message))
         bobGroup = try advanced(try bobGroup.process(update.message))
         daveGroup = try advanced(try daveGroup.process(update.message))
-        bobSteps.append(["commit_hex": update.message.encoded.hex, "expect": state(bobGroup)])
-        daveSteps.append(["commit_hex": update.message.encoded.hex, "expect": state(daveGroup)])
+        bobSteps.append(["commit_hex": update.message.encoded.hex, "expect": try state(bobGroup)])
+        daveSteps.append(["commit_hex": update.message.encoded.hex, "expect": try state(daveGroup)])
 
         // Refused, each leaving the follower where it was.
         let rotate = try alice.commit()
@@ -333,8 +333,8 @@ struct MLSVectorGenerator {
         carolGroup = try advanced(try carolGroup.process(rotate.message))
         bobGroup = try advanced(try bobGroup.process(rotate.message))
         daveGroup = try advanced(try daveGroup.process(rotate.message))
-        bobSteps.append(["commit_hex": rotate.message.encoded.hex, "expect": state(bobGroup)])
-        daveSteps.append(["commit_hex": rotate.message.encoded.hex, "expect": state(daveGroup)])
+        bobSteps.append(["commit_hex": rotate.message.encoded.hex, "expect": try state(bobGroup)])
+        daveSteps.append(["commit_hex": rotate.message.encoded.hex, "expect": try state(daveGroup)])
 
         // Alice removes Dave; Dave is told.
         let removeDave = try alice.commit(removing: [try #require(alice.leaf(of: "dave/d"))])
@@ -342,7 +342,7 @@ struct MLSVectorGenerator {
         carolGroup = try advanced(try carolGroup.process(removeDave.message))
         bobGroup = try advanced(try bobGroup.process(removeDave.message))
         guard case .removed = try daveGroup.process(removeDave.message) else { throw MLSError.invalidProposal }
-        bobSteps.append(["commit_hex": removeDave.message.encoded.hex, "expect": state(bobGroup)])
+        bobSteps.append(["commit_hex": removeDave.message.encoded.hex, "expect": try state(bobGroup)])
         daveSteps.append(["commit_hex": removeDave.message.encoded.hex, "removed": true])
 
         // Carol removes Alice, the founder, and re-adds Dave in the blank leaf.
@@ -350,7 +350,7 @@ struct MLSVectorGenerator {
         let reshape = try carolGroup.commit(adding: [dave2.keyPackage], removing: [try #require(carolGroup.leaf(of: "alice/a"))])
         carolGroup = reshape.next
         bobGroup = try advanced(try bobGroup.process(reshape.message))
-        bobSteps.append(["commit_hex": reshape.message.encoded.hex, "expect": state(bobGroup)])
+        bobSteps.append(["commit_hex": reshape.message.encoded.hex, "expect": try state(bobGroup)])
 
         // Carol removes Bob.
         let removeBob = try carolGroup.commit(removing: [try #require(carolGroup.leaf(of: "bob/b"))])

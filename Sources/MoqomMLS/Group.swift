@@ -85,7 +85,7 @@
 // the person it names. That binding is the delivery service's, which is to say
 // MOQOM's control plane admits a device and the group takes its word. A
 // compromised operator could therefore add a device; every member would see it
-// in ``MLSGroup/members``, and ``MLSGroup/epochAuthenticator`` is the value two
+// in ``MLSGroup/roster``, and ``MLSGroup/epochAuthenticator`` is the value two
 // people compare out of band to rule that out.
 
 import CryptoKit
@@ -221,6 +221,23 @@ public struct MLSKeyPackageBundle: Sendable {
     let initPrivate: Data
     let encryptionPrivate: Data
     let signaturePrivate: Data
+
+    /// Reassembles a bundle from a key package and its private keys, in the
+    /// forms ``MLSCipherSuite/generateKeyPair()`` and
+    /// ``MLSCipherSuite/generateSignatureKeyPair()`` return. Nothing is
+    /// checked: a key that does not match the package fails later, when a
+    /// Welcome or commit does not open or a signature does not verify.
+    public init(keyPackage: MLSKeyPackage, initPrivate: Data, encryptionPrivate: Data, signaturePrivate: Data) {
+        self.keyPackage = keyPackage
+        self.initPrivate = initPrivate
+        self.encryptionPrivate = encryptionPrivate
+        self.signaturePrivate = signaturePrivate
+    }
+
+    /// The private keys, for a caller that persists the bundle.
+    public var privateKeys: (initPrivate: Data, encryptionPrivate: Data, signaturePrivate: Data) {
+        (initPrivate, encryptionPrivate, signaturePrivate)
+    }
 
     /// A key package for `identity` in `cipherSuite`, which is the only suite
     /// of group it can be added to.
@@ -534,8 +551,11 @@ public struct MLSGroup: Sendable {
     public var epochAuthenticator: Data { secrets.epochAuthenticator }
 
     /// `MLS-Exporter`, RFC 9420 §8.5, for this epoch.
-    public func exporter(label: String, context: Data = Data(), length: Int) -> Data {
-        secrets.exporter(label: label, context: context, length: length)
+    ///
+    /// Throws ``MLSError/invalidLength(length:maximum:)`` for a `length` that
+    /// is negative or past 255 times the suite's hash length.
+    public func exporter(label: String, context: Data = Data(), length: Int) throws(MLSError) -> Data {
+        try secrets.exporter(label: label, context: context, length: length)
     }
 
     /// The leaf a given identity occupies, if any.
@@ -609,7 +629,7 @@ public struct MLSGroup: Sendable {
         let joinerLeaves = Set(added.map(\.leaf))
 
         let encryption = try cipherSuite.generateKeyPair()
-        guard let own = next.leaf(ownLeaf) else { throw MLSError.removed }
+        guard let own = next.leaf(ownLeaf) else { throw MLSError.unknownSender }
         next.leaves[Int(ownLeaf)] = MLSLeaf(
             identity: own.identity,
             signatureKey: own.signatureKey,

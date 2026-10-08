@@ -66,11 +66,18 @@ func Example() {
 		log.Fatal(err)
 	}
 
-	base := aliceGroup.Exporter(mls.SFrameExporterLabel, nil, 32)
+	aliceBase, err := aliceGroup.Exporter(mls.SFrameExporterLabel, nil, 32)
+	if err != nil {
+		log.Fatal(err)
+	}
+	bobBase, err := bobGroup.Exporter(mls.SFrameExporterLabel, nil, 32)
+	if err != nil {
+		log.Fatal(err)
+	}
 	fmt.Println("epoch:", aliceGroup.Epoch(), bobGroup.Epoch())
 	fmt.Println("leaves:", aliceGroup.OwnLeaf(), bobGroup.OwnLeaf())
 	fmt.Println("same authenticator:", bytes.Equal(aliceGroup.EpochAuthenticator(), bobGroup.EpochAuthenticator()))
-	fmt.Println("same SFrame base key:", bytes.Equal(base, bobGroup.Exporter(mls.SFrameExporterLabel, nil, 32)))
+	fmt.Println("same SFrame base key:", bytes.Equal(aliceBase, bobBase))
 	// Output:
 	// epoch: 2 2
 	// leaves: 0 1

@@ -45,25 +45,11 @@ func (v vector) hex(t *testing.T, key string) []byte {
 	return out
 }
 
-// errorClass is the vector failure class an error belongs to.
+// errorClass is Class, or the error's text for one outside every class, so
+// that a mismatch says what went wrong.
 func errorClass(err error) string {
-	classes := []struct {
-		err   error
-		class string
-	}{
-		{ErrMalformed, "malformed"}, {ErrUnsupported, "unsupported"}, {ErrInvalidKeyPackage, "invalid-key-package"},
-		{ErrBadSignature, "bad-signature"}, {ErrConfirmationMismatch, "confirmation-mismatch"},
-		{ErrDecryptionFailed, "decryption-failed"}, {ErrWrongEpoch, "wrong-epoch"}, {ErrWrongGroup, "wrong-group"},
-		{ErrInvalidProposal, "invalid-proposal"}, {ErrUnknownSender, "unknown-sender"}, {ErrNotAddressed, "not-addressed"},
-		{ErrCipherSuiteMismatch, "cipher-suite-mismatch"}, {ErrRemoved, "removed"}, {ErrCryptoFailure, "crypto-failure"},
-	}
-	if err == nil {
-		return ""
-	}
-	for _, c := range classes {
-		if errors.Is(err, c.err) {
-			return c.class
-		}
+	if class := Class(err); class != "" || err == nil {
+		return class
 	}
 	return err.Error()
 }
@@ -166,7 +152,7 @@ func TestPublishedKeySchedule(t *testing.T) {
 					t.Errorf("epoch %d: welcome secret alone", index)
 				}
 				x := e.object("exporter")
-				if got := s.Exporter(x.str("label"), x.hex(t, "context"), x.int("length")); !bytes.Equal(got, x.hex(t, "secret")) {
+				if got, err := s.Exporter(x.str("label"), x.hex(t, "context"), x.int("length")); err != nil || !bytes.Equal(got, x.hex(t, "secret")) {
 					t.Errorf("epoch %d: exporter", index)
 				}
 				initSecret = s.InitSecret
@@ -282,7 +268,7 @@ func TestKeyScheduleVectors(t *testing.T) {
 			s := DeriveEpochSecrets(initSecret, e.hex(t, "commit_secret_hex"), nil, context)
 			checkSecrets(t, index, s, e, "_hex")
 			for _, x := range e.objects("exporters") {
-				if got := s.Exporter(x.str("label"), x.hex(t, "context_hex"), x.int("length")); !bytes.Equal(got, x.hex(t, "out_hex")) {
+				if got, err := s.Exporter(x.str("label"), x.hex(t, "context_hex"), x.int("length")); err != nil || !bytes.Equal(got, x.hex(t, "out_hex")) {
 					t.Errorf("epoch %d: exporter %q/%d", index, x.str("label"), x.int("length"))
 				}
 			}
@@ -379,7 +365,7 @@ func checkState(t *testing.T, index int, group *Group, e vector) {
 		t.Errorf("step %d: epoch authenticator", index)
 	}
 	for _, x := range e.objects("exporters") {
-		if got := group.Exporter(x.str("label"), x.hex(t, "context_hex"), x.int("length")); !bytes.Equal(got, x.hex(t, "out_hex")) {
+		if got, err := group.Exporter(x.str("label"), x.hex(t, "context_hex"), x.int("length")); err != nil || !bytes.Equal(got, x.hex(t, "out_hex")) {
 			t.Errorf("step %d: exporter %q", index, x.str("label"))
 		}
 	}

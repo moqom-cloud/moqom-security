@@ -222,7 +222,8 @@ fn published_key_schedule() {
             );
             let x = &e["exporter"];
             assert_eq!(
-                s.exporter(string(x, "label"), &hex(x, "context"), int(x, "length")),
+                s.exporter(string(x, "label"), &hex(x, "context"), int(x, "length"))
+                    .unwrap(),
                 hex(x, "secret")
             );
             init = s.init_secret.clone();
@@ -346,7 +347,8 @@ fn key_schedule() {
             }
             for x in e["exporters"].as_array().unwrap() {
                 assert_eq!(
-                    s.exporter(string(x, "label"), &hex(x, "context_hex"), int(x, "length")),
+                    s.exporter(string(x, "label"), &hex(x, "context_hex"), int(x, "length"))
+                        .unwrap(),
                     hex(x, "out_hex"),
                     "epoch {index}: exporter {}",
                     string(x, "label")
@@ -456,7 +458,9 @@ fn check_state(group: &Group, e: &Value, at: &str) {
     );
     for x in e["exporters"].as_array().unwrap() {
         assert_eq!(
-            group.exporter(string(x, "label"), &hex(x, "context_hex"), int(x, "length")),
+            group
+                .exporter(string(x, "label"), &hex(x, "context_hex"), int(x, "length"))
+                .unwrap(),
             hex(x, "out_hex"),
             "{at}: exporter {}",
             string(x, "label")
@@ -510,8 +514,11 @@ fn round_trip() {
                 "{suite}"
             );
             assert_eq!(
-                g.exporter(moqom_mls::SFRAME_EXPORTER_LABEL, &[], 16),
-                alice.exporter(moqom_mls::SFRAME_EXPORTER_LABEL, &[], 16)
+                g.exporter(moqom_mls::SFRAME_EXPORTER_LABEL, &[], 16)
+                    .unwrap(),
+                alice
+                    .exporter(moqom_mls::SFRAME_EXPORTER_LABEL, &[], 16)
+                    .unwrap()
             );
         }
 
@@ -546,4 +553,57 @@ fn round_trip() {
         Err(Error::DecryptionFailed)
     );
     assert!(audience::seal(&[7; 32], &public[..32], b"g", 3).is_err());
+}
+
+#[test]
+fn exporter_length_limit() {
+    for suite in [CipherSuite::MLDSA, CipherSuite::XWING, CipherSuite::X25519] {
+        let group =
+            Group::create(b"g", &KeyPackageBundle::generate("alice", suite).unwrap()).unwrap();
+        let max = 255 * suite.hash_length();
+        assert_eq!(group.exporter("x", &[], max).unwrap().len(), max, "{suite}");
+        let over = group.exporter("x", &[], max + 1);
+        assert_eq!(
+            over,
+            Err(Error::InvalidLength {
+                length: max + 1,
+                max
+            }),
+            "{suite}"
+        );
+        assert_eq!(class(&over), "invalid-length");
+        assert_eq!(
+            class(&group.exporter("x", &[], usize::MAX)),
+            "invalid-length",
+            "{suite}"
+        );
+    }
+}
+
+#[test]
+fn debug_redacts_secrets() {
+    let alice = KeyPackageBundle::generate("alice", CipherSuite::FOUNDING).unwrap();
+    let bob = KeyPackageBundle::generate("bob", CipherSuite::FOUNDING).unwrap();
+    let add = Group::create(b"g", &alice)
+        .unwrap()
+        .commit(std::slice::from_ref(&bob.key_package), &[])
+        .unwrap();
+    let bob_group = Group::join(add.welcome.as_ref().unwrap(), &bob).unwrap();
+    let update = add.next.commit(&[], &[]).unwrap();
+    let processed = bob_group.process(&update.message).unwrap();
+
+    let secrets = [
+        format!("{:?}", alice.private_keys().2),
+        format!("{:?}", bob.private_keys().1),
+        format!("{:?}", bob.private_keys().2),
+        format!("{:?}", add.next.epoch_authenticator()),
+        format!("{:?}", add.next.exporter("x", &[], 32).unwrap()),
+    ];
+    for printed in [format!("{add:?}"), format!("{processed:?}")] {
+        assert!(printed.contains("<redacted>"), "{printed}");
+        for secret in &secrets {
+            assert!(!printed.contains(secret.trim_matches(['[', ']'])));
+        }
+    }
+    assert!(format!("{processed:?}").contains("Advanced"));
 }

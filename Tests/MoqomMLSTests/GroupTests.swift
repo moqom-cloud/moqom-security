@@ -32,7 +32,7 @@ struct MLSGroupTests {
         alice = addCarol.next
         guard case let .advanced(next) = try bobGroup.process(addCarol.message) else {
             Issue.record("bob was not advanced")
-            throw MLSError.removed
+            throw MLSError.notAddressed
         }
         bobGroup = next
         let carolGroup = try MLSGroup.join(try #require(addCarol.welcome), bundle: carol)
@@ -218,11 +218,65 @@ struct MLSGroupTests {
     )
     func baseKeyIsExporter(suite: MLSCipherSuite) throws {
         let (alice, _, _) = try threeMembers(suite)
-        let base = alice.exporter(label: "SFrame 1.0 Base Key", length: 32)
+        let base = try alice.exporter(label: "SFrame 1.0 Base Key", length: 32)
         let sealed = try SFrameSender(key: alice.sframeKey(for: 1, suite: .aes256GcmSha512))
             .protectRaw(Data("x".utf8), aad: Data())
         let receiver = SFrameReceiver()
         receiver.add(try SFrameKey(keyID: MLSSFrameKeys.keyID(leaf: 1, epoch: alice.epoch), baseKey: base))
         #expect(try receiver.unprotectRaw(sealed, aad: Data()) == Data("x".utf8))
+    }
+
+    // MARK: - Exporter limit and stored bundles
+
+    @Test("the exporter refuses a length past 255 times the hash length", arguments: MLSCipherSuite.supported)
+    func exporterLength(suite: MLSCipherSuite) throws {
+        let group = try MLSGroup.create(groupID: room, bundle: bundle("alice/a", suite))
+        let maximum = 255 * suite.hashLength
+        #expect(try group.exporter(label: "x", length: maximum).count == maximum)
+        for length in [maximum + 1, 1 << 16, 1 << 17, -1] {
+            #expect(throws: MLSError.invalidLength(length: length, maximum: maximum)) {
+                try group.exporter(label: "x", length: length)
+            }
+        }
+        do {
+            _ = try group.exporter(label: "x", length: maximum + 1)
+        } catch {
+            #expect(error.errorClass == "invalid-length")
+        }
+    }
+
+    @Test("a bundle stored as its key package and private keys joins and follows", arguments: MLSCipherSuite.supported)
+    func storedBundle(suite: MLSCipherSuite) throws {
+        let alice = try MLSGroup.create(groupID: room, bundle: bundle("alice/a", suite))
+        let original = try bundle("bob/b", suite)
+
+        let keys = original.privateKeys
+        let restored = MLSKeyPackageBundle(
+            keyPackage: try MLSKeyPackage.decode(original.keyPackage.encoded),
+            initPrivate: keys.initPrivate,
+            encryptionPrivate: keys.encryptionPrivate,
+            signaturePrivate: keys.signaturePrivate
+        )
+        #expect(restored.keyPackage == original.keyPackage)
+        #expect(restored.privateKeys == keys)
+
+        let add = try alice.commit(adding: [original.keyPackage])
+        var bob = try MLSGroup.join(try #require(add.welcome), bundle: restored)
+        #expect(bob.epochAuthenticator == add.next.epochAuthenticator)
+
+        let update = try add.next.commit()
+        guard case let .advanced(next) = try bob.process(update.message) else {
+            Issue.record("bob was not advanced")
+            return
+        }
+        bob = next
+        #expect(bob.epochAuthenticator == update.next.epochAuthenticator)
+
+        let rotate = try bob.commit()
+        guard case let .advanced(aliceNext) = try update.next.process(rotate.message) else {
+            Issue.record("alice was not advanced")
+            return
+        }
+        #expect(aliceNext.epochAuthenticator == rotate.next.epochAuthenticator)
     }
 }

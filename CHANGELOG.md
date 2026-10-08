@@ -43,7 +43,16 @@ The first release.
   epoch's key to broadcast viewers.
 - Opens legacy groups in X-Wing (0xF0A1) and `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`
   (0x0001) in every language.
-- Rust wipes HPKE secrets, epoch secrets and private keys when they are dropped.
+- Rust wipes HPKE secrets, epoch secrets and private keys when they are dropped, and its
+  `Debug` output for groups, pending commits, processed commits and epoch secrets leaves out
+  every secret and private key.
+- The exporter refuses a length past 255 times the suite's hash length (HKDF's limit) with the
+  `invalid-length` error class, in every language.
+- A key package bundle can be stored and restored in every language: Swift's
+  `MLSKeyPackageBundle.privateKeys` and `init(keyPackage:initPrivate:encryptionPrivate:signaturePrivate:)`,
+  Go's `PrivateKeys` and `NewKeyPackageBundle`, Rust's `private_keys` and `KeyPackageBundle::new`.
+- Errors map to the vectors' failure classes with Swift's `MLSError.errorClass`, Go's
+  `mls.Class` and Rust's `Error::class`, as in the other three libraries.
 
 ### Test vectors
 

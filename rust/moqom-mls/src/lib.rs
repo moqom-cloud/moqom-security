@@ -53,8 +53,8 @@
 //!
 //! assert_eq!((alice_group.epoch(), bob_group.epoch()), (2, 2));
 //! assert_eq!(alice_group.epoch_authenticator(), bob_group.epoch_authenticator());
-//! let base = alice_group.exporter(SFRAME_EXPORTER_LABEL, &[], 32);
-//! assert_eq!(base, bob_group.exporter(SFRAME_EXPORTER_LABEL, &[], 32));
+//! let base = alice_group.exporter(SFRAME_EXPORTER_LABEL, &[], 32)?;
+//! assert_eq!(base, bob_group.exporter(SFRAME_EXPORTER_LABEL, &[], 32)?);
 //! # Ok::<(), moqom_mls::Error>(())
 //! ```
 //!

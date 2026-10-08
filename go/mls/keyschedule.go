@@ -115,15 +115,19 @@ func welcomeSecret(suite CipherSuite, joiner, pskSecret []byte) []byte {
 	return suite.DeriveSecret(suite.extract(joiner, psk(suite, pskSecret)), "welcome")
 }
 
-// Exporter is MLS-Exporter, RFC 9420 §8.5.
-func (e *EpochSecrets) Exporter(label string, context []byte, length int) []byte {
+// Exporter is MLS-Exporter, RFC 9420 §8.5. A length that is negative or past
+// 255 times the suite's hash length is ErrInvalidLength.
+func (e *EpochSecrets) Exporter(label string, context []byte, length int) ([]byte, error) {
 	s := e.CipherSuite
+	if limit := 255 * s.HashLength(); length < 0 || length > limit {
+		return nil, fmt.Errorf("%w: %d bytes, at most %d", ErrInvalidLength, length, limit)
+	}
 	var info writer
 	info.uint16(uint16(s.HashLength()))
 	info.vector(append([]byte("MLS 1.0 "), label...))
 	info.vector(nil)
 	secret := s.expand(e.ExporterSecret, info.bytes, s.HashLength())
-	return s.ExpandWithLabel(secret, "exported", s.hash(context), length)
+	return s.ExpandWithLabel(secret, "exported", s.hash(context), length), nil
 }
 
 // SFrameExporterLabel is the label RFC 9605 §5.2 exports an epoch's SFrame

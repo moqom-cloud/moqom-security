@@ -69,25 +69,3 @@ extension Data {
 
     var hex: String { map { String(format: "%02x", $0) }.joined() }
 }
-
-extension MLSError {
-    /// The failure class the vectors name; see `docs/moqom-mls.md`.
-    var vectorClass: String {
-        switch self {
-        case .malformed: "malformed"
-        case .badSignature: "bad-signature"
-        case .confirmationMismatch: "confirmation-mismatch"
-        case .decryptionFailed: "decryption-failed"
-        case .cryptoFailure: "crypto-failure"
-        case .wrongEpoch: "wrong-epoch"
-        case .wrongGroup: "wrong-group"
-        case .invalidProposal: "invalid-proposal"
-        case .unknownSender: "unknown-sender"
-        case .removed: "removed"
-        case .notAddressed: "not-addressed"
-        case .invalidKeyPackage: "invalid-key-package"
-        case .unsupported: "unsupported"
-        case .cipherSuiteMismatch: "cipher-suite-mismatch"
-        }
-    }
-}

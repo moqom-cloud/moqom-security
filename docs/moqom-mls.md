@@ -38,7 +38,10 @@ the other two generated.
   with its init key, decrypts the GroupInfo, and verifies the GroupInfo
   signature, the member-list hash and the confirmation tag.
 - **Exporter.** `MLS-Exporter(label, context, length)` as RFC 9420 §8.5
-  defines it. The SFrame base key for an epoch is
+  defines it. HKDF-Expand produces at most 255 times the suite's hash length:
+  8,160 bytes in `0xF0A1` and `0x0001`, 12,240 in `0xF0AA`. A longer (or, in
+  Swift and Go, negative) length is refused as `invalid-length` in all three
+  languages. The SFrame base key for an epoch is
   `exporter("SFrame 1.0 Base Key", "", Nk)`. Each member's KID is
   `(leaf << 4) | (epoch % 16)`, built by `MoqomSFrame`'s `SFrameKeyID` in
   Swift.
@@ -185,9 +188,14 @@ switch try bobGroup.process(MLSCommitMessage.decode(bytes)) {
 case .advanced(let next): ...
 case .removed: ...
 }
-group.exporter(label: "SFrame 1.0 Base Key", length: 32)
-group.epochAuthenticator
+try group.exporter(label: "SFrame 1.0 Base Key", length: 32)
+group.epochAuthenticator; group.roster
 group.sframeBaseKey(suite: .aes256GcmSha512); group.sframeKeys(suite:)   // RFC 9605 §5.2
+
+let keys = bundle.privateKeys            // (initPrivate, encryptionPrivate, signaturePrivate)
+let restored = MLSKeyPackageBundle(keyPackage: try MLSKeyPackage.decode(stored),
+    initPrivate: keys.initPrivate, encryptionPrivate: keys.encryptionPrivate,
+    signaturePrivate: keys.signaturePrivate)
 
 let viewer = try MLSAudience.generateKeyPair()
 let envelope = try MLSAudience.seal(base, to: viewer.publicKey, groupID: id, epoch: 7)
@@ -212,8 +220,11 @@ w, err := mls.DecodeWelcome(data)
 bobGroup, err := mls.Join(w, bob)
 m, err := mls.DecodeCommitMessage(data)
 next, removed, err := bobGroup.Process(m)
-g.Exporter(mls.SFrameExporterLabel, nil, 32)
+base, err := g.Exporter(mls.SFrameExporterLabel, nil, 32)
 g.EpochAuthenticator()
+
+initPriv, encPriv, sigPriv := bundle.PrivateKeys()
+restored := mls.NewKeyPackageBundle(k, initPriv, encPriv, sigPriv)
 
 priv, pub, err := mls.GenerateAudienceKeyPair()
 env, err := mls.SealAudience(base, pub, id, 7)
@@ -224,7 +235,8 @@ The suite primitives are methods on `mls.CipherSuite`: `ExpandWithLabel`,
 `DeriveSecret`, `RefHash`, `SignWithLabel`, `VerifyWithLabel`,
 `EncryptWithLabel` and `DecryptWithLabel`. The key schedule is
 `mls.GroupContext`, `mls.DeriveEpochSecrets` and `(*EpochSecrets).Exporter`.
-`mls.NewKeyPackageBundle` reassembles a bundle from stored private keys.
+`(*KeyPackageBundle).PrivateKeys` and `mls.NewKeyPackageBundle` store and
+restore a bundle.
 
 ### Rust
 
@@ -238,8 +250,11 @@ let bob_group = Group::join(&Welcome::decode(&bytes)?, &bob)?;
 match bob_group.process(&CommitMessage::decode(&bytes)?)? {
     Processed::Advanced(next) => ..., Processed::Removed => ...,
 }
-group.exporter(SFRAME_EXPORTER_LABEL, &[], 32);
+group.exporter(SFRAME_EXPORTER_LABEL, &[], 32)?;
 group.epoch_authenticator();
+
+let (init, encryption, signature) = bundle.private_keys();
+let restored = KeyPackageBundle::new(package, init.to_vec(), encryption.to_vec(), signature.to_vec());
 
 let (private, public) = audience::generate_key_pair()?;
 let envelope = audience::seal(&base, &public, &id, 7)?;
@@ -252,6 +267,9 @@ The suite primitives are methods on `CipherSuite`: `expand_with_label`,
 schedule is `GroupContext`, `EpochSecrets::derive` and
 `EpochSecrets::exporter`.
 
+`Group`, `PendingCommit`, `Processed` and `EpochSecrets` implement `Debug`
+with every secret and private key left out.
+
 Rust implements HPKE in all three suites, X-Wing included.
 
 ## Error classes
@@ -259,9 +277,9 @@ Rust implements HPKE in all three suites, X-Wing included.
 The vectors name a class, never a message. Each language maps its errors onto
 these classes:
 
-- **Swift:** `MLSError` cases.
-- **Go:** sentinels matched with `errors.Is`.
-- **Rust:** `Error::class()`.
+- **Swift:** `MLSError` cases; `MLSError.errorClass` is the class.
+- **Go:** sentinels matched with `errors.Is`; `mls.Class(err)` is the class.
+- **Rust:** `Error` variants; `Error::class()` is the class.
 
 | Class                   | Meaning                                                                      |
 | ----------------------- | ---------------------------------------------------------------------------- |
@@ -278,10 +296,12 @@ these classes:
 | `not-addressed`         | A Welcome or commit that holds nothing for this member.                     |
 | `cipher-suite-mismatch` | A key package or Welcome in a different suite from the group.               |
 | `crypto-failure`        | The platform's crypto refused an operation (key generation, a bad private key). |
+| `invalid-length`        | An exporter length past 255 times the suite's hash length, or negative.     |
 
 Being removed by a commit is an outcome, not an error. Swift returns
 `.removed`, Go returns `removed == true`, and Rust returns
-`Processed::Removed`. Vectors write it as `"removed": true`.
+`Processed::Removed`. Vectors write it as `"removed": true`. There is no
+`removed` error class.
 
 ## Vectors
 

@@ -178,9 +178,19 @@ public struct MLSEpochSecrets: Sendable {
         )
     }
 
+    /// The most `MLS-Exporter` can produce: HKDF-Expand's limit of 255 times
+    /// the suite's hash length.
+    var maximumExporterLength: Int { 255 * cipherSuite.hashLength }
+
     /// `MLS-Exporter`, RFC 9420 §8.5.
-    public func exporter(label: Data, context: Data, length: Int) -> Data {
-        cipherSuite.expandWithLabel(
+    ///
+    /// Throws ``MLSError/invalidLength(length:maximum:)`` for a `length` that
+    /// is negative or past 255 times the suite's hash length.
+    public func exporter(label: Data, context: Data, length: Int) throws(MLSError) -> Data {
+        guard (0 ... maximumExporterLength).contains(length) else {
+            throw MLSError.invalidLength(length: length, maximum: maximumExporterLength)
+        }
+        return cipherSuite.expandWithLabel(
             cipherSuite.deriveSecret(exporterSecret, rawLabel: label),
             label: "exported",
             context: cipherSuite.hash(context),
@@ -188,7 +198,18 @@ public struct MLSEpochSecrets: Sendable {
         )
     }
 
-    public func exporter(label: String, context: Data = Data(), length: Int) -> Data {
-        exporter(label: Data(label.utf8), context: context, length: length)
+    public func exporter(label: String, context: Data = Data(), length: Int) throws(MLSError) -> Data {
+        try exporter(label: Data(label.utf8), context: context, length: length)
+    }
+
+    /// The exporter with an empty context, for a length the caller fixes no
+    /// larger than an AEAD key, as RFC 9605's `base_key` is. Traps past
+    /// `maximumExporterLength`.
+    func exporter(label: String, length: Int) -> Data {
+        do {
+            return try exporter(label: Data(label.utf8), context: Data(), length: length)
+        } catch {
+            preconditionFailure("an exporter length of \(length) is past the HKDF limit")
+        }
     }
 }

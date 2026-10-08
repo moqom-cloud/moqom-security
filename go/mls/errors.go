@@ -38,8 +38,40 @@ var (
 	// ErrCipherSuiteMismatch is a key package or Welcome in a suite other
 	// than the group's.
 	ErrCipherSuiteMismatch = errors.New("mls: cipher suite mismatch")
-	// ErrRemoved is committing from a group this member has left.
-	ErrRemoved = errors.New("mls: removed")
 	// ErrCryptoFailure is a primitive failing where it should not be able to.
 	ErrCryptoFailure = errors.New("mls: crypto failure")
+	// ErrInvalidLength is an exporter length that is negative or past
+	// HKDF-Expand's limit of 255 times the suite's hash length.
+	ErrInvalidLength = errors.New("mls: invalid length")
 )
+
+var classes = []struct {
+	err   error
+	class string
+}{
+	{ErrMalformed, "malformed"},
+	{ErrUnsupported, "unsupported"},
+	{ErrInvalidKeyPackage, "invalid-key-package"},
+	{ErrBadSignature, "bad-signature"},
+	{ErrConfirmationMismatch, "confirmation-mismatch"},
+	{ErrDecryptionFailed, "decryption-failed"},
+	{ErrWrongEpoch, "wrong-epoch"},
+	{ErrWrongGroup, "wrong-group"},
+	{ErrInvalidProposal, "invalid-proposal"},
+	{ErrUnknownSender, "unknown-sender"},
+	{ErrNotAddressed, "not-addressed"},
+	{ErrCipherSuiteMismatch, "cipher-suite-mismatch"},
+	{ErrCryptoFailure, "crypto-failure"},
+	{ErrInvalidLength, "invalid-length"},
+}
+
+// Class is the vector failure class of err, or "" for nil or an error this
+// package did not return.
+func Class(err error) string {
+	for _, c := range classes {
+		if errors.Is(err, c.err) {
+			return c.class
+		}
+	}
+	return ""
+}

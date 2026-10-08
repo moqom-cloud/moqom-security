@@ -19,7 +19,7 @@ struct SharedVectorTests {
             try body()
             return nil
         } catch let error as MLSError {
-            return error.vectorClass
+            return error.errorClass
         } catch {
             return "\(error)"
         }
@@ -64,7 +64,7 @@ struct SharedVectorTests {
     }
 
     @Test("key schedule", arguments: try Vectors.cases("mls-key-schedule.json"))
-    func keySchedule(_ v: Vector) {
+    func keySchedule(_ v: Vector) throws {
         var initSecret = v.hex("initial_init_secret_hex")
         for (index, e) in v.objects("epochs").enumerated() {
             let context = MLSGroupContext(
@@ -83,7 +83,7 @@ struct SharedVectorTests {
             ]
             for (value, key) in expected { #expect(value == e.hex(key), "\(key), epoch \(index)") }
             for x in e.objects("exporters") {
-                #expect(s.exporter(label: x.string("label"), context: x.hex("context_hex"), length: x.int("length")) == x.hex("out_hex"))
+                #expect(try s.exporter(label: x.string("label"), context: x.hex("context_hex"), length: x.int("length")) == x.hex("out_hex"))
             }
             initSecret = s.initSecret
         }
@@ -117,6 +117,10 @@ struct SharedVectorTests {
             encryptionPrivate: m.hex("encryption_private_hex"),
             signaturePrivate: m.hex("signature_private_hex")
         )
+        #expect(bundle.privateKeys.initPrivate == m.hex("init_private_hex"))
+        #expect(bundle.privateKeys.encryptionPrivate == m.hex("encryption_private_hex"))
+        #expect(bundle.privateKeys.signaturePrivate == m.hex("signature_private_hex"))
+        #expect(bundle.keyPackage.encoded == m.hex("key_package_hex"))
         var group: MLSGroup?
         for (index, step) in v.objects("steps").enumerated() {
             var removed = false
@@ -140,7 +144,7 @@ struct SharedVectorTests {
             #expect(group.members.leaves.map { $0?.identityString } == (e.fields["members"] as! [Any]).map { $0 as? String })
             #expect(group.epochAuthenticator == e.hex("epoch_authenticator_hex"), "step \(index)")
             for x in e.objects("exporters") {
-                #expect(group.exporter(label: x.string("label"), context: x.hex("context_hex"), length: x.int("length")) == x.hex("out_hex"))
+                #expect(try group.exporter(label: x.string("label"), context: x.hex("context_hex"), length: x.int("length")) == x.hex("out_hex"))
             }
         }
     }

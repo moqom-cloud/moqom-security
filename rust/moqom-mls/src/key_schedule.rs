@@ -58,8 +58,9 @@ impl GroupContext {
     }
 }
 
-/// Everything one epoch of the key schedule produces.
-#[derive(Clone, Debug)]
+/// Everything one epoch of the key schedule produces. `Debug` names only the
+/// suite.
+#[derive(Clone)]
 pub struct EpochSecrets {
     pub cipher_suite: CipherSuite,
     pub joiner_secret: Vec<u8>,
@@ -75,6 +76,14 @@ pub struct EpochSecrets {
     pub epoch_authenticator: Vec<u8>,
     /// The next epoch's init_secret.
     pub init_secret: Vec<u8>,
+}
+
+impl core::fmt::Debug for EpochSecrets {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EpochSecrets")
+            .field("cipher_suite", &self.cipher_suite)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Drop for EpochSecrets {
@@ -163,15 +172,22 @@ impl EpochSecrets {
     }
 
     /// MLS-Exporter, RFC 9420 §8.5.
-    #[must_use]
-    pub fn exporter(&self, label: &str, context: &[u8], length: usize) -> Vec<u8> {
+    ///
+    /// # Errors
+    /// [`Error::InvalidLength`] for a `length` past HKDF-Expand's limit of
+    /// 255 times the suite's hash length.
+    pub fn exporter(&self, label: &str, context: &[u8], length: usize) -> Result<Vec<u8>> {
         let s = self.cipher_suite;
+        let max = 255 * s.hash_length();
+        if length > max {
+            return Err(Error::InvalidLength { length, max });
+        }
         let mut info = Writer::default();
         info.u16(s.hash_length() as u16);
         info.vector(format!("MLS 1.0 {label}").as_bytes());
         info.vector(&[]);
         let secret = s.expand(&self.exporter_secret, &info.into_bytes(), s.hash_length());
-        s.expand_with_label(&secret, "exported", &s.hash(context), length)
+        Ok(s.expand_with_label(&secret, "exported", &s.hash(context), length))
     }
 }
 
