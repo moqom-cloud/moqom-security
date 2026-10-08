@@ -34,13 +34,21 @@ All three pass every case in [`vectors/token`](../vectors/token).
   verifier refuses one that would last longer: `exp − iat > 900` when it has an
   issue time, or `exp − now > 930` when it has none.
 - **Bound to a device.** `cnf.jkt` is the RFC 7638 SHA-256 thumbprint of the
-  device key the token was issued to. A signer refuses one that is not 32
-  bytes of base64url. The proof that a session holds that key is
-  `moqom-proof`'s job, not this library's.
+  device key the token was issued to: 43 characters of canonical unpadded
+  base64url, decoding to 32 bytes. A signer refuses to mint, and a verifier
+  refuses to accept, a token whose `jkt` is anything else (`thumbprint`),
+  because no proof of possession could match it. The proof that a session
+  holds that key is `moqom-proof`'s job, not this library's.
 - **Key sets.** JWK sets are read either as a bare array or wrapped in
-  `{"keys": [...]}`. Each key must be `AKP` / `ML-DSA-65` or `OKP` /
-  `Ed25519`, with a public key of the right length. A key that doesn't fit is
-  refused rather than skipped. A derived key ID is
+  `{"keys": [...]}`. The whole document is read first: member names are exact,
+  a `null` or repeated member is refused, and every key needs a `kty` and a
+  non-empty `kid` (`set_malformed`). Then each key in order: it must be `AKP` /
+  `ML-DSA-65` or `OKP` / `Ed25519` (`key_unsupported`), its public key must be
+  canonical base64url of the right length (`key_invalid`), and its `kid` must
+  not repeat an earlier one (`duplicate_kid`). A key that doesn't fit makes the
+  set an error rather than being skipped, and two keys under one `kid` would
+  leave which one a token selects to the parser. Members a key doesn't need
+  (`use`, `key_ops`) are ignored. A derived key ID is
   `base64url(SHA-256(raw public key)[:8])`.
 - **Raw signatures for protocols that share the key.** `SignMessage` (Go),
   `sign_message` (Rust) and `signature(for:)` (Swift) sign arbitrary bytes with
@@ -63,7 +71,8 @@ about a token:
 `base64url(header) "." base64url(claims) "." base64url(signature)`.
 
 The base64url is unpadded and canonical: padding, characters outside the
-alphabet, and non-zero trailing bits are all refused. The signature covers the
+alphabet (line breaks included, which Go's decoder would otherwise skip), and
+non-zero trailing bits are all refused. The signature covers the
 first two segments exactly as received, and the token is at most 8,192 bytes.
 
 The header has exactly these members, and any other parameter is malformed:
@@ -91,7 +100,7 @@ The grant, `moqt`:
 
 | Member | Type | Meaning |
 | --- | --- | --- |
-| `room` | string | Room. Omitted when empty, meaning any. |
+| `room` | string | Room. Omitted when empty, meaning none. |
 | `pub` | integer 0–255 | Media kinds the holder may publish. 0 means a viewer. |
 | `cap` | integer, 32 bits | Capability bits |
 | `own` | bool | Room owner. Omitted when false. |
@@ -114,6 +123,14 @@ Parsing rules:
 - An unknown member of `moqt` is malformed. A grant field added later is as
   likely to narrow a grant as to widen it, and a verifier that skipped it would
   grant more than was issued.
+
+The library carries `room`, `pub` and `cap` without interpreting them. In
+MOQOM, a token with no room admits its holder to no room. The relay lets it
+publish only on the holder's own personal channel and read personal channels
+in its tenant, refuses every room and backstage name, and refuses a relay link
+(`rly`) that names no room. The control plane refuses to deliver room keys to a
+token with no room, and refuses to mint one that has `via` but no room, or an
+agent token with no room.
 
 The signer's JSON encoding is canonical and identical in all three languages,
 and the sign vectors pin it byte for byte:
@@ -146,7 +163,8 @@ The checks run in this order, and each one stops at the first failure:
 13. Already valid: when `iat ≠ 0`, `now + 30 < iat` fails (`not_yet_valid`).
 14. Lifetime (`lifetime`).
 15. `sub`, `aud` and `jkt` are all present (`incomplete`).
-16. The tenant matches, if pinned (`wrong_tenant`).
+16. `jkt` is a SHA-256 thumbprint (`thumbprint`).
+17. The tenant matches, if pinned (`wrong_tenant`).
 
 Times are compared in whole Unix seconds, with 30 seconds of clock skew allowed
 either way.
@@ -167,7 +185,7 @@ jws, err := signer.Sign(token.Claims{
     Grant: token.Grant{Room: "room-42", Publish: 3},
 })
 
-keys, err := token.ParseJWKSet(document)          // []token.PublicKey
+keys, err := token.ParseJWKSet(document)          // []token.PublicKey; errors.Is(err, token.ErrDuplicateKeyID), …
 v := token.NewVerifier(iss, keys...).ForTenant("acme")
 claims, err := v.Verify(jws, time.Now())
 switch {
@@ -178,14 +196,16 @@ token.Class(err)                                   // "expired", as in the vecto
 
 `PublicKey` has `NewPublicKey(alg, id, raw)`, `ID`, `Algorithm`, `Bytes`,
 `Verify(msg, sig)` and `JWK`. `Signer` has `ID`, `PublicKey`, `Seed` and
-`SignMessage`.
+`SignMessage`. `Verifier` has `IsEmpty` and `Key(id)`. Loading a key, a set or
+a seed fails with `ErrKeySetMalformed`, `ErrKeyUnsupported`, `ErrKeyInvalid`
+or `ErrDuplicateKeyID`, which `Class` also names.
 
 ### Rust
 
 ```rust
 use moqom_token::{Claims, Confirmation, Grant, PublicKey, Signer, Verifier};
 
-let signer = Signer::from_seed(&seed)?.with_id("2026-10");
+let signer = Signer::from_seed(&seed)?.with_id("2026-10");  // or Signer::generate()
 let jws = signer.sign(&Claims {
     iss: iss.into(), sub: "ada".into(), tenant: "acme".into(),
     iat, exp: iat + 600,
@@ -194,15 +214,19 @@ let jws = signer.sign(&Claims {
     ..Claims::default()
 })?;
 
-let keys = PublicKey::parse_set(&document)?;
+let keys = PublicKey::parse_set(&document)?;        // Err(KeyError::DuplicateKeyId(kid)), …
 let verifier = Verifier::new(iss, keys).for_tenant("acme");
 let claims = verifier.verify(jws.as_bytes(), SystemTime::now())?;
 // Err(moqom_token::Error::Expired), …; error.class() == "expired"
 ```
 
 `PublicKey` has `ml_dsa_65(id, bytes)`, `ed25519(id, bytes)`,
-`verifies(msg, sig)` and `jwk()`. `key_id(raw)` derives a key ID. The
-constants are `TOKEN_TYPE`, `MAX_LIFETIME`, `CLOCK_SKEW` and
+`verifies(msg, sig)` and `jwk()`. `key_id(raw)` derives a key ID. `Signer` has
+`generate()`, `seed()`, `id()`, `public_key()` and `sign_message(msg)`.
+`Verifier` has `is_empty()`, `key(id)`, `keys()`, `issuer()` and `tenant()`.
+Loading a key, a set or a seed fails with `KeyError` (`Malformed`,
+`Unsupported`, `Invalid`, `DuplicateKeyId`, `Seed`, `Random`), whose `class()`
+names it. The constants are `TOKEN_TYPE`, `MAX_LIFETIME`, `CLOCK_SKEW` and
 `MAX_TOKEN_BYTES`.
 
 ### Swift
@@ -217,15 +241,19 @@ let jws = try signer.sign(Claims(
     grant: Grant(room: "room-42", publish: 3)
 ))
 
-let keys = try PublicKey.parseSet(document)
+let keys = try PublicKey.parseSet(document)              // throws(PublicKey.SetError)
 let verifier = Verifier(issuer: iss, tenant: "acme", keys: keys)
 let claims = try verifier.verify(jws, now: Date())        // throws(TokenError)
 // TokenError.expired, …; error.vectorClass == "expired"
 ```
 
 `PublicKey(id:algorithm:rawRepresentation:)` has `derivedID(for:)`,
-`isValidSignature(_:for:)` and `jwk`. `TokenLimits` holds the type, the
-maximum lifetime, the clock skew and the maximum length.
+`isValidSignature(_:for:)` and `jwk`. `Signer` has `keyID`, `seed`,
+`publicKey` and `signature(for:)`. `Verifier` has `isEmpty` and `key(_:)`.
+`PublicKey.SetError` is `.malformed(why)`, `.unsupported(kid:)`,
+`.invalid(kid:reason:)` or `.duplicateKeyID(kid)`, and its `vectorClass` names
+it. `TokenLimits` holds the type, the maximum lifetime, the clock skew and the
+maximum length.
 
 ## Errors
 
@@ -241,7 +269,7 @@ maximum lifetime, the clock skew and the maximum length.
 | `wrong_issuer` | `ErrWrongIssuer` | `WrongIssuer` | `.wrongIssuer` | `iss` is not the pinned issuer |
 | `wrong_tenant` | `ErrWrongTenant` | `WrongTenant` | `.wrongTenant` | `aud` is not the pinned tenant |
 | `incomplete` | `ErrIncomplete` | `Incomplete` | `.incomplete` | Missing `sub`, `aud` or `jkt` |
-| `thumbprint` | `ErrThumbprint` | `Thumbprint` | `.thumbprint` | Signing only: `jkt` is not a SHA-256 thumbprint |
+| `thumbprint` | `ErrThumbprint` | `Thumbprint` | `.thumbprint` | `jkt` is not a SHA-256 thumbprint |
 
 The `malformed` reasons are the same strings in all three languages, and the
 relay closes a session with them:
@@ -254,6 +282,18 @@ relay closes a session with them:
 - `claims are not base64url`
 - `claims are not JSON`
 - `no expiry`
+
+Loading a key set:
+
+| Class | Go | Rust (`KeyError`) | Swift (`PublicKey.SetError`) | Meaning |
+| --- | --- | --- | --- | --- |
+| `set_malformed` | `ErrKeySetMalformed` | `Malformed(why)` | `.malformed(why)` | Not a JWK set, a `null`, mistyped or repeated member, or a key with no `kty` or `kid` |
+| `key_unsupported` | `ErrKeyUnsupported` | `Unsupported { kid }` | `.unsupported(kid:)` | Not `AKP` / `ML-DSA-65` or `OKP` / `Ed25519` |
+| `key_invalid` | `ErrKeyInvalid` | `Invalid { kid, reason }`, `Seed` | `.invalid(kid:reason:)` | Public key not canonical base64url or the wrong length; a bad seed |
+| `duplicate_kid` | `ErrDuplicateKeyID` | `DuplicateKeyId(kid)` | `.duplicateKeyID(kid)` | Two keys in the set share a `kid` |
+
+Rust's `KeyError::Random` (class `random`) is `Signer::generate` failing to
+read the system random number generator; no vector names it.
 
 ## Vectors
 
@@ -268,7 +308,7 @@ build would write. The generator uses fixed seeds and
 `now = 1800000000`. The top-level `keys` array lists each key's ID, algorithm,
 seed and public key.
 
-- `verify.json` has 62 cases. Each gives a token, a time, an issuer, a tenant
+- `verify.json` has 72 cases. Each gives a token, a time, an issuer, a tenant
   and a key set, together with either the claims it yields or the error class.
   They cover:
   - valid ML-DSA-65 tokens and the legacy Ed25519 ones;
@@ -284,10 +324,17 @@ seed and public key.
   - grant strictness;
   - duplicate member names in the header, the claims, `cnf`, the grant, an
     unknown claim and an array, including one spelled with an escape;
-  - every malformed reason, including non-canonical base64url and non-object
-    JSON.
-- `sign.json` has 13 cases: five valid claim sets with their exact signing
-  input and a deterministic token, and eight that a signer must refuse.
+  - every malformed reason, including non-canonical base64url, line breaks
+    inside a segment, and non-object JSON;
+  - `cnf.jkt` values that are not a SHA-256 thumbprint: too short, too long,
+    padded, outside the alphabet, non-canonical trailing bits, a line break,
+    and a 16-character device ID.
+- `sign.json` has 18 cases: five valid claim sets with their exact signing
+  input and a deterministic token, and thirteen that a signer must refuse.
+- `keysets.json` has 34 cases. Each gives a JWK set document and either the
+  key IDs it yields, in order, or the error class. They cover both shapes, the
+  empty set, ignored members, duplicate key IDs, every `set_malformed` cause,
+  unsupported key types, and bad key material.
 
 The runners:
 
@@ -297,10 +344,10 @@ The runners:
 
 ## Known gaps
 
-- Duplicate JSON member names are not vectored. Go's and Rust's decoders keep
-  the last occurrence, and Foundation's behaviour is unspecified. A signer
-  never writes one, and the signature covers the exact bytes, so only an issuer
-  could produce one.
 - The library does not track token IDs (`jti`), so it does not detect replay.
   A token is a bearer of rights for at most fifteen minutes, and the
   proof-of-possession check is what binds it to a session.
+- Constructing a `PublicKey` directly from raw bytes checks the length in Go
+  (`NewPublicKey`) but not in Rust (`PublicKey::ml_dsa_65`, `ed25519`) or Swift
+  (`PublicKey(id:algorithm:rawRepresentation:)`). A key of the wrong length
+  there verifies nothing. JWK sets are checked the same way in all three.
