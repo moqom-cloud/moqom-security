@@ -156,7 +156,7 @@ try receiver.unprotect(object, metadata: metadata)
 
 Errors are thrown as `SFrameError`, and `errorClass` names the vector class.
 `SFrameHeader` encodes and reads headers. The MoqomKit SDK re-exports this
-module and adds `SFrameMetadata(TrackObject, track: FullTrackName)`.
+module and adds `SFrameMetadata(_ object: TrackObject, on track: FullTrackName)`.
 
 ### Go
 

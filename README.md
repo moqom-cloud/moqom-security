@@ -6,7 +6,7 @@ MOQOM's post-quantum security, as four libraries in Swift, Go and Rust:
 | --- | --- | --- |
 | [`moqom-token`](docs/moqom-token.md) | Mints and verifies join tokens: tenant, room, grants, expiry, device binding (`cnf.jkt`), key rotation by key ID | Compact JWS; ML-DSA-65 (FIPS 204), Ed25519 verify-only |
 | [`moqom-proof`](docs/moqom-proof.md) | A device's single-use proof that it holds the key its token names, bound to the token and to the peer's certificate | RFC 9449 shape, RFC 7638 thumbprints; ML-DSA-65, ES256 accepted |
-| [`moqom-sframe`](docs/moqom-sframe.md) | Seals and opens MoQ objects with their metadata bound into the tag | RFC 9605, draft-ietf-moq-secure-objects |
+| [`moqom-sframe`](docs/moqom-sframe.md) | Seals and opens MoQ objects with their full track name and metadata bound into the tag | RFC 9605; binds the fields draft-ietf-moq-secure-objects authenticates |
 | [`moqom-mls`](docs/moqom-mls.md) | Room key agreement that produces SFrame keys, and sealing an epoch's key to broadcast viewers | RFC 9420, `MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65` (draft-ietf-mls-pq-ciphersuites) |
 
 These are the libraries MOQOM's apps, relays and control plane run. Every
