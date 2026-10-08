@@ -1,6 +1,7 @@
 [package]
 name = "moqom-token"
 version = "0.1.0"
+description = "Mint and verify MOQOM join tokens: compact JWS signed with ML-DSA-65, Ed25519 verify-only"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -8,3 +9,8 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+aws-lc-rs = { workspace = true }
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
