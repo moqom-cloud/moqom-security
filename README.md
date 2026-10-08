@@ -29,14 +29,19 @@ Swift (iOS, macOS, visionOS and tvOS 26):
 Go 1.27:
 
 ```sh
-go get github.com/moqom-cloud/moqom-security/go@latest
+go get github.com/moqom-cloud/moqom-security/go@v0.1.0
+# packages: .../go/token, .../go/proof, .../go/sframe, .../go/mls
 ```
 
 Rust 1.97:
 
 ```sh
-cargo add --git https://github.com/moqom-cloud/moqom-security moqom-token
+cargo add moqom-token moqom-proof moqom-sframe moqom-mls
 ```
+
+Reference documentation, with examples in all three languages, is at
+[moqom.dev/security/libraries](https://moqom.dev/security/libraries/). Releases are listed in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Layout
 
