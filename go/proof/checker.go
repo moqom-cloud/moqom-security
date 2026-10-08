@@ -275,8 +275,9 @@ func decodeClaims(segment []byte) (claims, error) {
 		return claims{}, err
 	}
 	if raw, ok := members["iat"]; ok {
+		// serde_json reads -0 as a float, so it is not an integer there.
 		var iat int64
-		if isNull(raw) || json.Unmarshal(raw, &iat) != nil {
+		if isNull(raw) || string(bytes.TrimSpace(raw)) == "-0" || json.Unmarshal(raw, &iat) != nil {
 			return claims{}, fmt.Errorf("iat is not an integer")
 		}
 		cl.iat = &iat

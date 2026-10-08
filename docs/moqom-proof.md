@@ -88,13 +88,21 @@ proof says:
   `ath`, `iat`, `jti`, `rel`) has its type or is absent. `null` is refused, not
   read as absent.
 - `iat` is an integer literal that fits in 64 bits: no fraction, no exponent,
-  so `1.7e9` and `1700000000.0` are refused.
+  and not `-0`, which `serde_json` reads as a float. So `1.7e9`,
+  `1700000000.0` and `-0` are refused, as moqom-token refuses them.
 - No number is too large for a double (`1e400`), and arrays and objects nest
   at most 127 deep, the outermost object included: `serde_json`'s limits, kept
   by all three.
 - Other members are ignored.
 
 Anything else is `malformed`.
+
+Every string the checker compares (`alg`, `typ`, `kty`, `crv`, member names,
+the thumbprint, `ath`, `rel`, and the nonce as a store key) is compared byte for
+byte after unescaping. Swift's `==` treats canonically equivalent Unicode as
+equal, so there `kty` `A\u212AP` (with a Kelvin sign) would pass for `AKP`, and
+`nonce-\u00E9` would be refused as a replay of `nonce-e\u0301`; Go and Rust tell
+them apart, and so does Swift's checker. A proof has no `htm`, `htu` or `kid`.
 
 Header:
 
@@ -303,13 +311,13 @@ times are Unix seconds in `now`.
   scalars, with the public JWK and thumbprint each must produce.
 - `thumbprints.json` (13 cases): RFC 7638 and AKP thumbprints, and 9 keys that
   have none (`malformed` 4, `unsupported` 5).
-- `proofs.json` (101 cases): proofs to check against `token`,
+- `proofs.json` (104 cases): proofs to check against `token`,
   `certificate_hash_hex`, `thumbprint` and `now`, with nonces in `spent`
   already spent, until `until`, at a checker that requires a certificate if
   `require_certificate` is set. An empty `certificate_hash_hex` is a checker
-  with none. 14 are valid, and 87 must be refused: `malformed` 53 (6 of them
-  keys carrying a private member, 30 of them headers or claims that JSON
-  parsers could read differently, all signed), `unsupported` 7,
+  with none. 15 are valid, and 89 must be refused: `malformed` 54 (6 of them
+  keys carrying a private member, 31 of them headers or claims that JSON
+  parsers could read differently, all signed), `unsupported` 8,
   `bad_signature` 6, `wrong_key` 4, `wrong_token` 3, `wrong_certificate` 8 (4
   of them at a checker with no certificate), `expired` 2, `not_yet_valid` 2,
   `replayed` 2.
@@ -328,6 +336,13 @@ control plane and the Swift client all read it.
   may be forgotten: a store swept by a checker whose clock runs ahead can let
   a checker whose clock runs behind accept the proof again, for as long as the
   clocks differ.
+- `ProofJWK`, `JWK` and `Jwk` are decoded with each language's own JSON
+  decoder when a caller reads one (from `/join`, say), and those differ: Go
+  matches member names regardless of case and reads `null` as absent, Swift
+  reads `null` as absent, Rust refuses it, and none refuses a duplicate. The
+  thumbprint is rebuilt from the decoded key, so the same key always gets the
+  same thumbprint, but an oddly spelled key can be accepted in one language and
+  refused in another. The checker does not use these decoders.
 - The window is symmetric and fixed per checker. There is no server-supplied
   nonce (RFC 9449 `DPoP-Nonce`), so freshness depends on the device clock
   being within the window.

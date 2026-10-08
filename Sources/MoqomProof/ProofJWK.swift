@@ -12,6 +12,15 @@ public enum ProofAlgorithm: String, Hashable, Sendable, CaseIterable {
     /// ECDSA on P-256 with SHA-256, the signature as fixed-width `r || s`.
     /// Accepted while devices holding older keys roll over.
     case es256 = "ES256"
+
+    /// The algorithm named `name` byte for byte, where `init(rawValue:)`
+    /// would accept any canonically equivalent spelling.
+    init?(exactly name: String) {
+        guard let algorithm = Self.allCases.first(where: { $0.rawValue.utf8.elementsEqual(name.utf8) }) else {
+            return nil
+        }
+        self = algorithm
+    }
 }
 
 /// A device's public key as a JSON Web Key: `kty` `AKP` with `alg` and `pub`
@@ -29,7 +38,7 @@ public struct ProofJWK: Hashable, Sendable, Codable {
     /// Members that carry a private key: `d` (EC, OKP, RSA), RSA's other
     /// primes, `oct`'s `k`, and AKP's `priv` and `seed`. A proof carrying one
     /// has leaked its device key and is refused.
-    static let privateMembers: Set<String> = ["d", "p", "q", "dp", "dq", "qi", "oth", "k", "priv", "seed"]
+    static let privateMembers = ["d", "dp", "dq", "k", "oth", "p", "priv", "q", "qi", "seed"]
 
     static let mlDSA65PublicKeyBytes = 1952
     static let p256CoordinateBytes = 32
@@ -85,9 +94,14 @@ public struct ProofJWK: Hashable, Sendable, Codable {
     }
 
     /// The proof algorithm this key signs with.
+    /// Members are compared byte for byte, as Go and Rust compare them:
+    /// Swift's `==` would take `A\u{212A}P`, with a Kelvin sign, for `AKP`.
     public func algorithm() throws(ProofError) -> ProofAlgorithm {
-        if kty == "AKP", alg == ProofAlgorithm.mlDSA65.rawValue { return .mlDSA65 }
-        if kty == "EC", crv == "P-256" { return .es256 }
+        func exactly(_ value: String?, _ expected: String) -> Bool {
+            value.map { $0.utf8.elementsEqual(expected.utf8) } ?? false
+        }
+        if exactly(kty, "AKP"), exactly(alg, ProofAlgorithm.mlDSA65.rawValue) { return .mlDSA65 }
+        if exactly(kty, "EC"), exactly(crv, "P-256") { return .es256 }
         throw .unsupported
     }
 

@@ -66,7 +66,7 @@ public struct Checker: Sendable {
                         kty: key.string("kty") ?? "", alg: key.string("alg"), pub: key.string("pub"),
                         crv: key.string("crv"), x: key.string("x"), y: key.string("y")
                     )
-                    privateMember = key.names.sorted().first(where: ProofJWK.privateMembers.contains)
+                    privateMember = ProofJWK.privateMembers.first(where: key.has)
                 }
             } catch {
                 return nil
@@ -123,8 +123,8 @@ public struct Checker: Sendable {
         guard let header = Self.decode(headerSegment).flatMap(Header.init) else {
             throw .malformed("header is not JSON")
         }
-        guard let alg = ProofAlgorithm(rawValue: header.alg), algorithms.contains(alg),
-              header.typ == proofType
+        guard let alg = ProofAlgorithm(exactly: header.alg), algorithms.contains(alg),
+              header.typ.utf8.elementsEqual(proofType.utf8)
         else { throw .unsupported }
         guard let jwk = header.jwk else { throw .malformed("header carries no key") }
         if let member = header.privateMember { throw .malformed("the key carries private member \(member)") }

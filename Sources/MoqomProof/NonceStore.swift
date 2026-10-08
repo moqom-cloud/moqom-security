@@ -32,7 +32,9 @@ public final class MemoryNonceStore: NonceStore {
 
     /// How many unexpired nonces the store holds before refusing.
     public let capacity: Int
-    private let spent = Mutex<[String: Date]>([:])
+    /// Keyed by UTF-8 bytes: a `String` key would make canonically
+    /// equivalent nonces, which Go and Rust hold apart, one nonce.
+    private let spent = Mutex<[[UInt8]: Date]>([:])
 
     /// A store holding up to ``defaultCapacity`` unexpired nonces.
     public init() {
@@ -55,8 +57,9 @@ public final class MemoryNonceStore: NonceStore {
                 spent = spent.filter { $0.value > now }
             }
             if spent.count >= capacity { return .overloaded }
-            if spent[nonce] != nil { return .replayed }
-            spent[nonce] = until
+            let key = Array(nonce.utf8)
+            if spent[key] != nil { return .replayed }
+            spent[key] = until
             return nil
         }
         if let outcome { throw outcome }

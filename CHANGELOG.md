@@ -34,8 +34,12 @@ The first release.
   checker has none to compare; `requireCertificate` makes the certificate mandatory.
 - Reads a proof's header, key and claims alike in all three languages: one JSON object of valid
   UTF-8, member names matched exactly, and `malformed` for a member named twice at any depth,
-  `null` for a known member, an `iat` that is not an integer literal, an unpaired surrogate
-  escape, a number too large for a double, or nesting deeper than 127.
+  `null` for a known member, an `iat` that is not an integer literal (`1.7e9`, `1700000000.0`
+  or `-0`), an unpaired surrogate escape, a number too large for a double, or nesting deeper
+  than 127.
+- Compares every string byte for byte in all three languages, the nonce store's keys included.
+  Swift no longer takes a canonically equivalent `kty` (`A\u212AP`) for `AKP`, or refuses a
+  nonce as a replay of a canonically equivalent one.
 - Remembers each nonce until the later of the caller's `until` and one second past the end of
   the proof's window, so a short `until` cannot let a proof in twice.
 - A checker or store that cannot work is refused when it is made, with the `configuration`
