@@ -78,7 +78,9 @@ Header:
   `ML-DSA-65` and `pub`, the 1,952-byte raw public key in base64url
   (draft-ietf-cose-dilithium). For ES256 it is an RFC 7517 EC key with 32-byte
   coordinates in canonical base64url. Any other length or spelling is
-  `malformed`.
+  `malformed`. So is a `jwk` with a private member (`d`, `p`, `q`, `dp`, `dq`,
+  `qi`, `oth`, `k`, `priv` or `seed`), whatever its value, even `null`: the
+  device has published its key.
 
 Claims:
 
@@ -129,8 +131,8 @@ capped at 16 KiB, which fits an AKP key and three names of the maximum length.
 1. Length is 1 to 16 KiB (`malformed`).
 2. Three segments, base64url, a JSON header (`malformed`).
 3. `typ` is `MOQT-POP` and `alg` is an accepted algorithm (`unsupported`).
-4. The header has a `jwk` (`malformed`), whose key type matches `alg`
-   (`unsupported`) and is well formed (`malformed`).
+4. The header has a `jwk` with no private member (`malformed`), whose key type
+   matches `alg` (`unsupported`) and is well formed (`malformed`).
 5. The signature verifies under that key (`bad_signature`).
 6. The key's thumbprint equals the token's `cnf.jkt` (`wrong_key`).
 7. The claims are JSON (`malformed`).
@@ -252,9 +254,10 @@ times are Unix seconds in `now`.
   scalars, with the public JWK and thumbprint each must produce.
 - `thumbprints.json` (13 cases): RFC 7638 and AKP thumbprints, and 9 keys that
   have none (`malformed` 4, `unsupported` 5).
-- `proofs.json` (53 cases): proofs to check against `token`,
+- `proofs.json` (59 cases): proofs to check against `token`,
   `certificate_hash_hex`, `thumbprint` and `now`, with nonces in `spent`
-  already spent, until `until`. 44 must be refused: `malformed` 17,
+  already spent, until `until`. 52 must be refused: `malformed` 23 (6 of them
+  keys carrying a private member),
   `unsupported` 7, `bad_signature` 6, `wrong_key` 4, `wrong_token` 3,
   `wrong_certificate` 3, `expired` 2, `not_yet_valid` 2, `replayed` 2.
 

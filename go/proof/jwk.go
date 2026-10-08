@@ -26,6 +26,11 @@ const (
 // Algorithms is every algorithm a [Checker] accepts by default, preferred first.
 var Algorithms = []Algorithm{MLDSA65, ES256}
 
+// privateMembers carry a private key: `d` (EC, OKP, RSA), RSA's other primes,
+// oct's `k`, and AKP's `priv` and `seed`. A proof carrying one has leaked its
+// device key and is refused.
+var privateMembers = []string{"d", "p", "q", "dp", "dq", "qi", "oth", "k", "priv", "seed"}
+
 const (
 	p256CoordinateSize = 32
 	es256SignatureSize = 64

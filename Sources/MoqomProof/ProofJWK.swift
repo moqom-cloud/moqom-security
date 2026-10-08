@@ -26,6 +26,11 @@ public struct ProofJWK: Hashable, Sendable, Codable {
     public var x: String?
     public var y: String?
 
+    /// Members that carry a private key: `d` (EC, OKP, RSA), RSA's other
+    /// primes, `oct`'s `k`, and AKP's `priv` and `seed`. A proof carrying one
+    /// has leaked its device key and is refused.
+    static let privateMembers: Set<String> = ["d", "p", "q", "dp", "dq", "qi", "oth", "k", "priv", "seed"]
+
     static let mlDSA65PublicKeyBytes = 1952
     static let p256CoordinateBytes = 32
 

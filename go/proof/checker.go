@@ -42,6 +42,12 @@ type header struct {
 	JWK *JWK   `json:"jwk"`
 }
 
+// jwkMembers is the header again, for the names of the key's members, which
+// [JWK] does not keep.
+type jwkMembers struct {
+	JWK map[string]json.RawMessage `json:"jwk"`
+}
+
 type claims struct {
 	Ath string `json:"ath"`
 	Iat *int64 `json:"iat"`
@@ -82,6 +88,15 @@ func (c *Checker) Check(proof, token, certificateHash []byte, thumbprint string,
 	}
 	if h.JWK == nil {
 		return fmt.Errorf("%w: header carries no key", ErrMalformed)
+	}
+	var members jwkMembers
+	if err := decodeSegment(headerSegment, &members); err != nil {
+		return fmt.Errorf("%w: header: %v", ErrMalformed, err)
+	}
+	for _, name := range privateMembers {
+		if _, ok := members.JWK[name]; ok {
+			return fmt.Errorf("%w: the key carries private member %q", ErrMalformed, name)
+		}
 	}
 	if alg, err := h.JWK.Algorithm(); err != nil {
 		return err

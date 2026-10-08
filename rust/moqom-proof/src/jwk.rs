@@ -8,6 +8,12 @@ use crate::{Error, b64, sha256_b64, unb64};
 pub(crate) const ML_DSA_65_PUBLIC_KEY_BYTES: usize = 1952;
 pub(crate) const P256_COORDINATE_BYTES: usize = 32;
 
+/// Members that carry a private key: `d` (EC, OKP, RSA), RSA's other primes,
+/// `oct`'s `k`, and AKP's `priv` and `seed`. A proof carrying one has leaked
+/// its device key and is refused.
+pub(crate) const PRIVATE_MEMBERS: [&str; 10] =
+    ["d", "p", "q", "dp", "dq", "qi", "oth", "k", "priv", "seed"];
+
 /// A proof's JOSE `alg`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Algorithm {

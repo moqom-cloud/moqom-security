@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use aws_lc_rs::signature::{ECDSA_P256_SHA256_FIXED, ML_DSA_65, UnparsedPublicKey};
 use serde::Deserialize;
 
-use crate::jwk::PublicKey;
+use crate::jwk::{PRIVATE_MEMBERS, PublicKey};
 use crate::{
     Algorithm, Error, Jwk, MemoryNonceStore, NonceStore, PROOF_TYPE, b64, constant_time_eq,
     sha256_b64, unb64,
@@ -33,7 +33,7 @@ struct Header {
     alg: String,
     #[serde(default)]
     typ: String,
-    jwk: Option<Jwk>,
+    jwk: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize)]
@@ -114,9 +114,14 @@ impl<S: NonceStore> Checker<S> {
         if header.typ != PROOF_TYPE {
             return Err(Error::Unsupported);
         }
-        let jwk = header
+        let members = header
             .jwk
             .ok_or(Error::Malformed("header carries no key"))?;
+        if PRIVATE_MEMBERS.iter().any(|name| members.contains_key(*name)) {
+            return Err(Error::Malformed("the key carries a private member"));
+        }
+        let jwk: Jwk = serde_json::from_value(members.into())
+            .map_err(|_| Error::Malformed("header is not JSON"))?;
         if jwk.algorithm()? != alg {
             return Err(Error::Unsupported);
         }

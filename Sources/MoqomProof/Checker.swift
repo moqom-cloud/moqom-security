@@ -31,13 +31,25 @@ public struct Checker: Sendable {
         var alg = ""
         var typ = ""
         var jwk: ProofJWK?
+        var privateMember: String?
 
         private enum Keys: String, CodingKey { case alg, typ, jwk }
+        private struct Member: CodingKey {
+            var stringValue: String
+            var intValue: Int? { nil }
+            init(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
+
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: Keys.self)
             alg = try container.decodeIfPresent(String.self, forKey: .alg) ?? ""
             typ = try container.decodeIfPresent(String.self, forKey: .typ) ?? ""
             jwk = try container.decodeIfPresent(ProofJWK.self, forKey: .jwk)
+            if jwk != nil {
+                privateMember = try container.nestedContainer(keyedBy: Member.self, forKey: .jwk).allKeys
+                    .map(\.stringValue).first(where: ProofJWK.privateMembers.contains)
+            }
         }
     }
 
@@ -88,6 +100,7 @@ public struct Checker: Sendable {
               header.typ == proofType
         else { throw .unsupported }
         guard let jwk = header.jwk else { throw .malformed("header carries no key") }
+        if let member = header.privateMember { throw .malformed("the key carries private member \(member)") }
         guard try jwk.algorithm() == alg else { throw .unsupported }
 
         let verified: Bool
