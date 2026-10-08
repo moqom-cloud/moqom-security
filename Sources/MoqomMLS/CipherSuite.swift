@@ -179,6 +179,8 @@ public struct MLSCipherSuite: Hashable, Sendable, CustomStringConvertible {
 
     /// `KDF.Expand(secret, info, length)`.
     func expand(_ secret: Data, info: Data, length: Int) -> Data {
+        // CryptoKit traps on an output of zero bytes, which HKDF defines as empty.
+        guard length > 0 else { return Data() }
         let prk = SymmetricKey(data: secret)
         let key = switch symmetric {
         case .aes128SHA256: HKDF<SHA256>.expand(pseudoRandomKey: prk, info: info, outputByteCount: length)
@@ -187,8 +189,25 @@ public struct MLSCipherSuite: Hashable, Sendable, CustomStringConvertible {
         return key.withUnsafeBytes { Data($0) }
     }
 
+    /// The most `ExpandWithLabel` can produce: HKDF-Expand's limit of 255
+    /// times the hash length, which for every suite here also fits its 16-bit
+    /// length.
+    var maximumExpandLength: Int { 255 * hashLength }
+
     /// `ExpandWithLabel`, RFC 9420 §5.1.3.
-    public func expandWithLabel(_ secret: Data, label: String, context: Data, length: Int) -> Data {
+    ///
+    /// Throws ``MLSError/invalidLength(length:maximum:)`` for a `length` that
+    /// is negative or past 255 times the suite's hash length.
+    public func expandWithLabel(_ secret: Data, label: String, context: Data, length: Int) throws(MLSError) -> Data {
+        guard (0 ... maximumExpandLength).contains(length) else {
+            throw MLSError.invalidLength(length: length, maximum: maximumExpandLength)
+        }
+        return expandLabel(secret, label: label, context: context, length: length)
+    }
+
+    /// `ExpandWithLabel` for a length the caller fixes within
+    /// `maximumExpandLength`.
+    func expandLabel(_ secret: Data, label: String, context: Data, length: Int) -> Data {
         var info = MLSWriter()
         info.uint16(UInt16(length))
         info.vector(Data("MLS 1.0 \(label)".utf8))
@@ -198,7 +217,7 @@ public struct MLSCipherSuite: Hashable, Sendable, CustomStringConvertible {
 
     /// `DeriveSecret`, RFC 9420 §5.1.3.
     public func deriveSecret(_ secret: Data, label: String) -> Data {
-        expandWithLabel(secret, label: label, context: Data(), length: hashLength)
+        expandLabel(secret, label: label, context: Data(), length: hashLength)
     }
 
     /// `DeriveSecret` with a label that is not UTF-8 text, for the exporter.
@@ -579,8 +598,8 @@ public enum MLSError: Error, Hashable, Sendable {
     /// A group never mixes suites: a device in another suite publishes new key
     /// packages in the group's before it can be added.
     case cipherSuiteMismatch(group: UInt16, other: UInt16)
-    /// An exporter length that is negative or past HKDF-Expand's limit of 255
-    /// times the suite's hash length.
+    /// An exporter or `expandWithLabel` length that is negative or past
+    /// HKDF-Expand's limit of 255 times the suite's hash length.
     case invalidLength(length: Int, maximum: Int)
 
     /// The failure class the shared vectors and the Go and Rust libraries

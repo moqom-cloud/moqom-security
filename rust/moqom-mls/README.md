@@ -28,6 +28,10 @@ commits or PrivateMessage. The primitives and key schedule are RFC 9420's and
 are checked against the MLS working group's vectors. Cryptography is AWS-LC's,
 through `aws-lc-rs`.
 
+`Group::exporter`, `EpochSecrets::exporter` and `CipherSuite::expand_with_label`
+refuse a length past HKDF-Expand's limit of 255 times the suite's hash length
+with `Error::InvalidLength { length, max }`, class `invalid-length`.
+
 The same library is available in Swift (`MoqomMLS`) and Go
 (`github.com/moqom-cloud/moqom-security/go/mls`), and all three pass the shared
 vectors in

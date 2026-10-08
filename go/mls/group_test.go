@@ -94,6 +94,26 @@ func TestExporterLength(t *testing.T) {
 	}
 }
 
+func TestExpandWithLabelLength(t *testing.T) {
+	for _, suite := range []CipherSuite{SuiteMLDSA, SuiteXWing, SuiteX25519} {
+		t.Run(suite.Name(), func(t *testing.T) {
+			secret := bytes.Repeat([]byte{1}, suite.HashLength())
+			limit := 255 * suite.HashLength()
+			for _, length := range []int{0, limit} {
+				if out, err := suite.ExpandWithLabel(secret, "x", nil, length); err != nil || len(out) != length {
+					t.Fatalf("length %d: %d bytes, %v", length, len(out), err)
+				}
+			}
+			for _, length := range []int{limit + 1, 1 << 16, -1} {
+				out, err := suite.ExpandWithLabel(secret, "x", nil, length)
+				if !errors.Is(err, ErrInvalidLength) || Class(err) != "invalid-length" || out != nil {
+					t.Errorf("length %d: %v", length, err)
+				}
+			}
+		})
+	}
+}
+
 func TestClass(t *testing.T) {
 	for _, c := range classes {
 		if got := Class(fmt.Errorf("%w: detail", c.err)); got != c.class {

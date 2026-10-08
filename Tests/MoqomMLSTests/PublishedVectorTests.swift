@@ -19,13 +19,13 @@ struct PublishedVectorTests {
     }
 
     @Test("crypto-basics: RefHash, ExpandWithLabel, DeriveSecret, DeriveTreeSecret", arguments: try Vectors.cases("mlswg-crypto-basics.json"))
-    func kdf(_ v: Vector) {
+    func kdf(_ v: Vector) throws {
         let suite = suite(v)
         var e = v.object("ref_hash")
         #expect(suite.refHash(label: e.string("label"), value: e.hex("value")) == e.hex("out"))
 
         e = v.object("expand_with_label")
-        #expect(suite.expandWithLabel(
+        #expect(try suite.expandWithLabel(
             e.hex("secret"), label: e.string("label"), context: e.hex("context"), length: e.int("length")
         ) == e.hex("out"))
 
@@ -37,7 +37,7 @@ struct PublishedVectorTests {
         e = v.object("derive_tree_secret")
         var generation = MLSWriter()
         generation.uint32(UInt32(e.int("generation")))
-        #expect(suite.expandWithLabel(
+        #expect(try suite.expandWithLabel(
             e.hex("secret"), label: e.string("label"), context: generation.bytes, length: e.int("length")
         ) == e.hex("out"))
     }

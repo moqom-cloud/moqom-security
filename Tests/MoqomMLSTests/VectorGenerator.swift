@@ -47,7 +47,7 @@ struct MLSVectorGenerator {
         cases.append([
             "name": "expand-with-label", "op": "expand_with_label",
             "secret_hex": secret.hex, "label": "ExpandWithLabel", "context_hex": context.hex, "length": 32,
-            "out_hex": suite.expandWithLabel(secret, label: "ExpandWithLabel", context: context, length: 32).hex,
+            "out_hex": try suite.expandWithLabel(secret, label: "ExpandWithLabel", context: context, length: 32).hex,
         ])
         cases.append([
             "name": "derive-secret", "op": "derive_secret", "secret_hex": secret.hex, "label": "DeriveSecret",

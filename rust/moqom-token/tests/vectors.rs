@@ -87,13 +87,19 @@ fn read<C: for<'de> Deserialize<'de>>(
                     "{}: seed and public key",
                     key.kid
                 );
-                public.insert(key.kid.clone(), PublicKey::ml_dsa_65(key.kid.clone(), raw));
+                public.insert(
+                    key.kid.clone(),
+                    PublicKey::ml_dsa_65(key.kid.clone(), raw).expect("key"),
+                );
                 signers.insert(key.kid, signer);
             }
             "EdDSA" => {
                 let pair = Ed25519KeyPair::from_seed_unchecked(&seed).expect("seed");
                 assert_eq!(pair.public_key().as_ref(), raw.as_slice());
-                public.insert(key.kid.clone(), PublicKey::ed25519(key.kid, raw));
+                public.insert(
+                    key.kid.clone(),
+                    PublicKey::ed25519(key.kid, raw).expect("key"),
+                );
             }
             other => panic!("algorithm {other}"),
         }
@@ -155,9 +161,33 @@ fn every_sign_vector() {
 }
 
 #[test]
+fn a_raw_key_of_the_wrong_length_is_refused() {
+    let ml_dsa = Signer::from_seed(&[1; 32])
+        .expect("seed")
+        .public_key()
+        .bytes;
+    assert!(PublicKey::ml_dsa_65("k", ml_dsa.clone()).is_ok());
+    assert!(PublicKey::ed25519("k", vec![7; 32]).is_ok());
+    for refused in [
+        PublicKey::ml_dsa_65("k", ml_dsa[..ml_dsa.len() - 1].to_vec()),
+        PublicKey::ml_dsa_65("k", [ml_dsa.as_slice(), &[0]].concat()),
+        PublicKey::ml_dsa_65("k", vec![7; 32]),
+        PublicKey::ml_dsa_65("k", Vec::new()),
+        PublicKey::ed25519("k", vec![7; 31]),
+        PublicKey::ed25519("k", vec![7; 33]),
+        PublicKey::ed25519("k", ml_dsa.clone()),
+        PublicKey::ed25519("k", Vec::new()),
+    ] {
+        let error = refused.expect_err("a key of the wrong length");
+        assert!(matches!(&error, KeyError::Invalid { kid, .. } if kid == "k"));
+        assert_eq!(error.class(), "key_invalid");
+    }
+}
+
+#[test]
 fn a_jwk_set_round_trips() {
     let signer = Signer::from_seed(&[1; 32]).expect("seed");
-    let legacy = PublicKey::ed25519("old", vec![7; 32]);
+    let legacy = PublicKey::ed25519("old", vec![7; 32]).expect("key");
     let document =
         serde_json::json!({ "keys": [signer.public_key().jwk(), legacy.jwk()] }).to_string();
     assert_eq!(

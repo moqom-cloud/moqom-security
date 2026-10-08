@@ -16,6 +16,8 @@ The first release.
   an RFC 7638 SHA-256 thumbprint (43 characters of canonical base64url).
 - Reads JWK sets alike in all three languages and refuses one that names a key ID twice. Loading
   errors are typed: `set_malformed`, `key_unsupported`, `key_invalid` and `duplicate_kid`.
+  A public key made from raw bytes of the wrong length is refused as `key_invalid` in every
+  language, as one in a set is.
 
 ### moqom-proof
 
@@ -46,8 +48,8 @@ The first release.
 - Rust wipes HPKE secrets, epoch secrets and private keys when they are dropped, and its
   `Debug` output for groups, pending commits, processed commits and epoch secrets leaves out
   every secret and private key.
-- The exporter refuses a length past 255 times the suite's hash length (HKDF's limit) with the
-  `invalid-length` error class, in every language.
+- The exporter and the public `ExpandWithLabel` refuse a length past 255 times the suite's hash
+  length (HKDF's limit) with the `invalid-length` error class, in every language.
 - A key package bundle can be stored and restored in every language: Swift's
   `MLSKeyPackageBundle.privateKeys` and `init(keyPackage:initPrivate:encryptionPrivate:signaturePrivate:)`,
   Go's `PrivateKeys` and `NewKeyPackageBundle`, Rust's `private_keys` and `KeyPackageBundle::new`.

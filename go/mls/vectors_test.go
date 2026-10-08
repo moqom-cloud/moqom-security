@@ -89,7 +89,7 @@ func TestPublishedCryptoBasics(t *testing.T) {
 				t.Error("ref_hash")
 			}
 			e = v.object("expand_with_label")
-			if got := suite.ExpandWithLabel(e.hex(t, "secret"), e.str("label"), e.hex(t, "context"), e.int("length")); !bytes.Equal(got, e.hex(t, "out")) {
+			if got, err := suite.ExpandWithLabel(e.hex(t, "secret"), e.str("label"), e.hex(t, "context"), e.int("length")); err != nil || !bytes.Equal(got, e.hex(t, "out")) {
 				t.Error("expand_with_label")
 			}
 			e = v.object("derive_secret")
@@ -98,7 +98,7 @@ func TestPublishedCryptoBasics(t *testing.T) {
 			}
 			e = v.object("derive_tree_secret")
 			generation := binary.BigEndian.AppendUint32(nil, uint32(e.int("generation")))
-			if got := suite.ExpandWithLabel(e.hex(t, "secret"), e.str("label"), generation, e.int("length")); !bytes.Equal(got, e.hex(t, "out")) {
+			if got, err := suite.ExpandWithLabel(e.hex(t, "secret"), e.str("label"), generation, e.int("length")); err != nil || !bytes.Equal(got, e.hex(t, "out")) {
 				t.Error("derive_tree_secret")
 			}
 			if suite != SuiteX25519 {
@@ -210,7 +210,7 @@ func TestCryptoVectors(t *testing.T) {
 			want := expectedError(v)
 			switch v.str("op") {
 			case "expand_with_label":
-				if got := suite.ExpandWithLabel(v.hex(t, "secret_hex"), v.str("label"), v.hex(t, "context_hex"), v.int("length")); !bytes.Equal(got, v.hex(t, "out_hex")) {
+				if got, err := suite.ExpandWithLabel(v.hex(t, "secret_hex"), v.str("label"), v.hex(t, "context_hex"), v.int("length")); err != nil || !bytes.Equal(got, v.hex(t, "out_hex")) {
 					t.Error("mismatch")
 				}
 			case "derive_secret":

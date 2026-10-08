@@ -78,11 +78,11 @@ private func read<Case: Decodable>(_ name: String) throws -> (File<Case>, Data, 
             let signer = try Signer(seed: hex(key.seed_hex), keyID: key.kid)
             #expect(signer.publicKey.rawRepresentation == publicBytes, "\(key.kid): seed and public key")
             signers[key.kid] = signer
-            keys[key.kid] = PublicKey(id: key.kid, algorithm: .mlDSA65, rawRepresentation: publicBytes)
+            keys[key.kid] = try PublicKey(id: key.kid, algorithm: .mlDSA65, rawRepresentation: publicBytes)
         case "EdDSA":
             let derived = try Curve25519.Signing.PrivateKey(rawRepresentation: hex(key.seed_hex)).publicKey
             #expect(derived.rawRepresentation == publicBytes)
-            keys[key.kid] = PublicKey(id: key.kid, algorithm: .ed25519, rawRepresentation: publicBytes)
+            keys[key.kid] = try PublicKey(id: key.kid, algorithm: .ed25519, rawRepresentation: publicBytes)
         default:
             Issue.record("algorithm \(key.alg)")
         }
@@ -139,7 +139,7 @@ struct VectorTests {
     @Test("a JWK set round-trips, and keys of the wrong kind are refused")
     func jwks() throws {
         let signer = try Signer(seed: Data(repeating: 1, count: 32))
-        let legacy = PublicKey(id: "old", algorithm: .ed25519, rawRepresentation: Data(repeating: 7, count: 32))
+        let legacy = try PublicKey(id: "old", algorithm: .ed25519, rawRepresentation: Data(repeating: 7, count: 32))
         let document = Data("{\"keys\":[\(signer.publicKey.jwk),\(legacy.jwk)]}".utf8)
         #expect(try PublicKey.parseSet(document) == [signer.publicKey, legacy])
         for refused in [
@@ -149,6 +149,35 @@ struct VectorTests {
             #"["not an object"]"#,
         ] {
             #expect(throws: PublicKey.SetError.self) { try PublicKey.parseSet(Data(refused.utf8)) }
+        }
+    }
+
+    @Test("a raw key of the wrong length is refused, as in a set")
+    func rawKeyLength() throws {
+        let mlDSA = try Signer(seed: Data(repeating: 1, count: 32)).publicKey.rawRepresentation
+        #expect(throws: Never.self) { try PublicKey(id: "k", algorithm: .mlDSA65, rawRepresentation: mlDSA) }
+        #expect(throws: Never.self) { try PublicKey(id: "k", algorithm: .ed25519, rawRepresentation: Data(repeating: 7, count: 32)) }
+        let refused: [(Algorithm, Data)] = [
+            (.mlDSA65, mlDSA.dropLast()), (.mlDSA65, mlDSA + [0]), (.mlDSA65, Data(repeating: 7, count: 32)), (.mlDSA65, Data()),
+            (.ed25519, Data(repeating: 7, count: 31)), (.ed25519, Data(repeating: 7, count: 33)), (.ed25519, mlDSA), (.ed25519, Data()),
+        ]
+        for (algorithm, raw) in refused {
+            do {
+                _ = try PublicKey(id: "k", algorithm: algorithm, rawRepresentation: raw)
+                Issue.record("\(algorithm) key of \(raw.count) bytes accepted")
+            } catch {
+                guard case .invalid(kid: "k", reason: _) = error else {
+                    Issue.record("\(error)")
+                    continue
+                }
+                #expect(error.vectorClass == "key_invalid")
+            }
+        }
+        do {
+            _ = try PublicKey(algorithm: .ed25519, rawRepresentation: Data(repeating: 7, count: 31))
+        } catch {
+            #expect(error == .invalid(kid: PublicKey.derivedID(for: Data(repeating: 7, count: 31)),
+                                      reason: "a EdDSA public key is 32 bytes"))
         }
     }
 

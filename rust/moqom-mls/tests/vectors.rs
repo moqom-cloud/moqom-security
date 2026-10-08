@@ -80,7 +80,7 @@ fn published_crypto_basics() {
                 &hex(e, "context"),
                 int(e, "length")
             ),
-            hex(e, "out")
+            Ok(hex(e, "out"))
         );
         let e = &v["derive_secret"];
         assert_eq!(
@@ -96,7 +96,7 @@ fn published_crypto_basics() {
                 &generation,
                 int(e, "length")
             ),
-            hex(e, "out")
+            Ok(hex(e, "out"))
         );
         if suite != CipherSuite::X25519 {
             continue;
@@ -252,7 +252,7 @@ fn crypto() {
                     &hex(&v, "context_hex"),
                     int(&v, "length")
                 ),
-                hex(&v, "out_hex"),
+                Ok(hex(&v, "out_hex")),
                 "{}",
                 name(&v)
             ),
@@ -577,6 +577,41 @@ fn exporter_length_limit() {
             "invalid-length",
             "{suite}"
         );
+    }
+}
+
+#[test]
+fn expand_with_label_length_limit() {
+    for suite in [CipherSuite::MLDSA, CipherSuite::XWING, CipherSuite::X25519] {
+        let secret = vec![1; suite.hash_length()];
+        let max = 255 * suite.hash_length();
+        for length in [0, max] {
+            assert_eq!(
+                suite
+                    .expand_with_label(&secret, "x", &[], length)
+                    .unwrap()
+                    .len(),
+                length,
+                "{suite}"
+            );
+        }
+        let over = suite.expand_with_label(&secret, "x", &[], max + 1);
+        assert_eq!(
+            over,
+            Err(Error::InvalidLength {
+                length: max + 1,
+                max
+            }),
+            "{suite}"
+        );
+        assert_eq!(class(&over), "invalid-length");
+        for length in [1 << 16, usize::MAX] {
+            assert_eq!(
+                class(&suite.expand_with_label(&secret, "x", &[], length)),
+                "invalid-length",
+                "{suite}"
+            );
+        }
     }
 }
 

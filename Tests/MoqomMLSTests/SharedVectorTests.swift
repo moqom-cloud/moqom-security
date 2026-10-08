@@ -29,7 +29,7 @@ struct SharedVectorTests {
     func crypto(_ v: Vector) throws {
         switch v.string("op") {
         case "expand_with_label":
-            #expect(suite.expandWithLabel(v.hex("secret_hex"), label: v.string("label"), context: v.hex("context_hex"), length: v.int("length")) == v.hex("out_hex"))
+            #expect(try suite.expandWithLabel(v.hex("secret_hex"), label: v.string("label"), context: v.hex("context_hex"), length: v.int("length")) == v.hex("out_hex"))
         case "derive_secret":
             #expect(suite.deriveSecret(v.hex("secret_hex"), label: v.string("label")) == v.hex("out_hex"))
         case "ref_hash":

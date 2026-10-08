@@ -126,7 +126,7 @@ public struct MLSEpochSecrets: Sendable {
         suite: MLSCipherSuite,
         encodedContext: Data
     ) -> MLSEpochSecrets {
-        let joiner = suite.expandWithLabel(
+        let joiner = suite.expandLabel(
             suite.extract(salt: previous, ikm: commitSecret),
             label: "joiner",
             context: encodedContext,
@@ -142,7 +142,7 @@ public struct MLSEpochSecrets: Sendable {
         encodedContext: Data
     ) -> MLSEpochSecrets {
         let member = suite.extract(salt: joiner, ikm: pskSecret ?? Data(count: suite.hashLength))
-        let epoch = suite.expandWithLabel(
+        let epoch = suite.expandLabel(
             member,
             label: "epoch",
             context: encodedContext,
@@ -180,7 +180,7 @@ public struct MLSEpochSecrets: Sendable {
 
     /// The most `MLS-Exporter` can produce: HKDF-Expand's limit of 255 times
     /// the suite's hash length.
-    var maximumExporterLength: Int { 255 * cipherSuite.hashLength }
+    var maximumExporterLength: Int { cipherSuite.maximumExpandLength }
 
     /// `MLS-Exporter`, RFC 9420 §8.5.
     ///
@@ -190,7 +190,7 @@ public struct MLSEpochSecrets: Sendable {
         guard (0 ... maximumExporterLength).contains(length) else {
             throw MLSError.invalidLength(length: length, maximum: maximumExporterLength)
         }
-        return cipherSuite.expandWithLabel(
+        return cipherSuite.expandLabel(
             cipherSuite.deriveSecret(exporterSecret, rawLabel: label),
             label: "exported",
             context: cipherSuite.hash(context),

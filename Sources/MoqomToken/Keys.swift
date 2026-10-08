@@ -34,8 +34,19 @@ public struct PublicKey: Hashable, Sendable {
     public let rawRepresentation: Data
 
     /// A key named `id`, or by ``derivedID(for:)`` when `id` is nil.
-    public init(id: String? = nil, algorithm: Algorithm, rawRepresentation: Data) {
-        self.id = id ?? Self.derivedID(for: rawRepresentation)
+    ///
+    /// Throws ``SetError/invalid(kid:reason:)`` for a key that is not the
+    /// algorithm's ``Algorithm/publicKeyBytes`` long.
+    public init(id: String? = nil, algorithm: Algorithm, rawRepresentation: Data) throws(SetError) {
+        let id = id ?? Self.derivedID(for: rawRepresentation)
+        guard rawRepresentation.count == algorithm.publicKeyBytes else {
+            throw .invalid(kid: id, reason: "a \(algorithm.rawValue) public key is \(algorithm.publicKeyBytes) bytes")
+        }
+        self.init(checkedID: id, algorithm: algorithm, rawRepresentation: rawRepresentation)
+    }
+
+    fileprivate init(checkedID id: String, algorithm: Algorithm, rawRepresentation: Data) {
+        self.id = id
         self.algorithm = algorithm
         self.rawRepresentation = rawRepresentation
     }
@@ -72,8 +83,8 @@ public struct PublicKey: Hashable, Sendable {
         }
     }
 
-    /// Why a JWK set was refused. Each is one of the error classes the key set
-    /// vectors name; see ``vectorClass``.
+    /// Why a JWK set or a raw key was refused. Each is one of the error
+    /// classes the key set vectors name; see ``vectorClass``.
     public enum SetError: Error, Hashable, Sendable, CustomStringConvertible {
         /// Not a JWK set: not JSON, not an array or `{"keys": [...]}`, a key
         /// that is not an object, a member that is null, of the wrong type or
@@ -82,7 +93,7 @@ public struct PublicKey: Hashable, Sendable {
         /// A key that is not AKP/ML-DSA-65 or OKP/Ed25519.
         case unsupported(kid: String)
         /// Key material that is not canonical base64url or not the algorithm's
-        /// length.
+        /// length, in a set or given raw.
         case invalid(kid: String, reason: String)
         /// A set naming one `kid` twice. Which of the two a token's `kid` would
         /// select is the kind of question a verifier must not answer by
@@ -146,11 +157,9 @@ public struct PublicKey: Hashable, Sendable {
             guard let raw = Data(base64URL: field) else {
                 throw .invalid(kid: jwk.kid, reason: "\(name) is not base64url")
             }
-            guard raw.count == algorithm.publicKeyBytes else {
-                throw .invalid(kid: jwk.kid, reason: "a \(algorithm.rawValue) public key is \(algorithm.publicKeyBytes) bytes")
-            }
+            let key = try PublicKey(id: jwk.kid, algorithm: algorithm, rawRepresentation: raw)
             guard seen.insert(jwk.kid).inserted else { throw .duplicateKeyID(jwk.kid) }
-            keys.append(PublicKey(id: jwk.kid, algorithm: algorithm, rawRepresentation: raw))
+            keys.append(key)
         }
         return keys
     }
@@ -213,7 +222,7 @@ public struct Signer: Sendable {
 
     /// The half a verifier needs.
     public var publicKey: PublicKey {
-        PublicKey(id: keyID, algorithm: .mlDSA65, rawRepresentation: privateKey.publicKey.rawRepresentation)
+        PublicKey(checkedID: keyID, algorithm: .mlDSA65, rawRepresentation: privateKey.publicKey.rawRepresentation)
     }
 
     /// Mint a token carrying `claims`, exactly as given.

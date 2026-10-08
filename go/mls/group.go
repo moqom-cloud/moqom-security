@@ -494,8 +494,8 @@ func (g *Group) groupInfoToBeSigned(tag []byte) []byte {
 }
 
 func welcomeKeys(suite CipherSuite, welcomeSecret []byte) (key, nonce []byte) {
-	return suite.ExpandWithLabel(welcomeSecret, "key", nil, suite.aeadKeyLength()),
-		suite.ExpandWithLabel(welcomeSecret, "nonce", nil, aeadNonceLength)
+	return suite.expandWithLabel(welcomeSecret, "key", nil, suite.aeadKeyLength()),
+		suite.expandWithLabel(welcomeSecret, "nonce", nil, aeadNonceLength)
 }
 
 func (g *Group) welcome(packages []*KeyPackage, tag []byte) (*Welcome, error) {

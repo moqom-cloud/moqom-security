@@ -724,10 +724,10 @@ public struct MLSGroup: Sendable {
         suite: MLSCipherSuite
     ) -> (key: Data, nonce: Data) {
         (
-            suite.expandWithLabel(
+            suite.expandLabel(
                 welcomeSecret, label: "key", context: Data(), length: suite.aeadKeyLength
             ),
-            suite.expandWithLabel(
+            suite.expandLabel(
                 welcomeSecret, label: "nonce", context: Data(), length: MLSCipherSuite.aeadNonceLength
             )
         )

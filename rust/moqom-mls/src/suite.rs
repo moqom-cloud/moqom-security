@@ -132,8 +132,33 @@ impl CipherSuite {
     }
 
     /// ExpandWithLabel, RFC 9420 §5.1.3.
-    #[must_use]
+    ///
+    /// # Errors
+    /// [`Error::InvalidLength`] for a `length` past HKDF-Expand's limit of
+    /// 255 times the suite's hash length.
     pub fn expand_with_label(
+        self,
+        secret: &[u8],
+        label: &str,
+        context: &[u8],
+        length: usize,
+    ) -> Result<Vec<u8>> {
+        let max = self.max_expand_length();
+        if length > max {
+            return Err(Error::InvalidLength { length, max });
+        }
+        Ok(self.expand_label(secret, label, context, length))
+    }
+
+    /// HKDF-Expand's limit of 255 times the hash length, which for every suite
+    /// here also fits ExpandWithLabel's 16-bit length.
+    pub(crate) fn max_expand_length(self) -> usize {
+        255 * self.hash_length()
+    }
+
+    /// ExpandWithLabel for a length the caller fixes within
+    /// [`CipherSuite::max_expand_length`].
+    pub(crate) fn expand_label(
         self,
         secret: &[u8],
         label: &str,
@@ -150,7 +175,7 @@ impl CipherSuite {
     /// DeriveSecret, RFC 9420 §5.1.3.
     #[must_use]
     pub fn derive_secret(self, secret: &[u8], label: &str) -> Vec<u8> {
-        self.expand_with_label(secret, label, &[], self.hash_length())
+        self.expand_label(secret, label, &[], self.hash_length())
     }
 
     /// RefHash, RFC 9420 §5.2.

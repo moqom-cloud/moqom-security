@@ -59,7 +59,11 @@ pub fn key_id(public: &[u8]) -> String {
 }
 
 /// A key tokens may be verified with.
+///
+/// Made only by [`PublicKey::ml_dsa_65`], [`PublicKey::ed25519`] or
+/// [`PublicKey::parse_set`], which refuse a key of the wrong length.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct PublicKey {
     /// The `kid` naming it.
     pub id: String,
@@ -71,23 +75,36 @@ pub struct PublicKey {
 
 impl PublicKey {
     /// An ML-DSA-65 key from its 1,952-byte encoding.
-    #[must_use]
-    pub fn ml_dsa_65(id: impl Into<String>, bytes: Vec<u8>) -> Self {
-        Self {
-            id: id.into(),
-            algorithm: Algorithm::MlDsa65,
-            bytes,
-        }
+    ///
+    /// # Errors
+    /// [`KeyError::Invalid`] for bytes that are not 1,952 long.
+    pub fn ml_dsa_65(id: impl Into<String>, bytes: Vec<u8>) -> Result<Self, KeyError> {
+        Self::new(id.into(), Algorithm::MlDsa65, bytes)
     }
 
     /// A legacy Ed25519 key from its 32 bytes.
-    #[must_use]
-    pub fn ed25519(id: impl Into<String>, bytes: Vec<u8>) -> Self {
-        Self {
-            id: id.into(),
-            algorithm: Algorithm::Ed25519,
-            bytes,
+    ///
+    /// # Errors
+    /// [`KeyError::Invalid`] for bytes that are not 32 long.
+    pub fn ed25519(id: impl Into<String>, bytes: Vec<u8>) -> Result<Self, KeyError> {
+        Self::new(id.into(), Algorithm::Ed25519, bytes)
+    }
+
+    fn new(id: String, algorithm: Algorithm, bytes: Vec<u8>) -> Result<Self, KeyError> {
+        if bytes.len() != algorithm.public_key_bytes() {
+            return Err(KeyError::Invalid {
+                kid: id,
+                reason: match algorithm {
+                    Algorithm::MlDsa65 => "an ML-DSA-65 public key is 1,952 bytes",
+                    Algorithm::Ed25519 => "an Ed25519 public key is 32 bytes",
+                },
+            });
         }
+        Ok(Self {
+            id,
+            algorithm,
+            bytes,
+        })
     }
 
     /// Whether `signature` is this key's over `message`, by this key's own
@@ -184,23 +201,11 @@ impl PublicKey {
                     },
                 });
             };
-            if bytes.len() != algorithm.public_key_bytes() {
-                return Err(KeyError::Invalid {
-                    kid: jwk.kid,
-                    reason: match algorithm {
-                        Algorithm::MlDsa65 => "an ML-DSA-65 public key is 1,952 bytes",
-                        Algorithm::Ed25519 => "an Ed25519 public key is 32 bytes",
-                    },
-                });
+            let key = Self::new(jwk.kid, algorithm, bytes)?;
+            if !seen.insert(key.id.clone()) {
+                return Err(KeyError::DuplicateKeyId(key.id));
             }
-            if !seen.insert(jwk.kid.clone()) {
-                return Err(KeyError::DuplicateKeyId(jwk.kid));
-            }
-            keys.push(Self {
-                id: jwk.kid,
-                algorithm,
-                bytes,
-            });
+            keys.push(key);
         }
         Ok(keys)
     }
@@ -224,7 +229,7 @@ pub enum KeyError {
         kid: String,
     },
     /// Key material that is not canonical base64url or not the algorithm's
-    /// length.
+    /// length, in a set or given raw.
     #[error("key {kid}: {reason}")]
     Invalid {
         /// The key's `kid`.
@@ -326,7 +331,11 @@ impl Signer {
     /// The half a verifier needs.
     #[must_use]
     pub fn public_key(&self) -> PublicKey {
-        PublicKey::ml_dsa_65(self.id.clone(), self.pair.public_key().as_ref().to_vec())
+        PublicKey {
+            id: self.id.clone(),
+            algorithm: Algorithm::MlDsa65,
+            bytes: self.pair.public_key().as_ref().to_vec(),
+        }
     }
 
     /// Mint a token carrying `claims`, exactly as given.

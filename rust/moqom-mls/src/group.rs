@@ -387,8 +387,8 @@ fn interim(suite: CipherSuite, confirmed: &[u8], tag: &[u8]) -> Vec<u8> {
 
 fn welcome_keys(suite: CipherSuite, welcome_secret: &[u8]) -> (Vec<u8>, Vec<u8>) {
     (
-        suite.expand_with_label(welcome_secret, "key", &[], suite.aead().key_length()),
-        suite.expand_with_label(welcome_secret, "nonce", &[], AEAD_NONCE_LENGTH),
+        suite.expand_label(welcome_secret, "key", &[], suite.aead().key_length()),
+        suite.expand_label(welcome_secret, "nonce", &[], AEAD_NONCE_LENGTH),
     )
 }
 

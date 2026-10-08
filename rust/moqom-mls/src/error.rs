@@ -31,8 +31,8 @@ pub enum Error {
     CipherSuiteMismatch { group: u16, key_package: u16 },
     #[error("crypto failure")]
     CryptoFailure,
-    /// An exporter length past HKDF-Expand's limit of 255 times the suite's
-    /// hash length.
+    /// An exporter or `expand_with_label` length past HKDF-Expand's limit of
+    /// 255 times the suite's hash length.
     #[error("invalid length: {length} bytes, at most {max}")]
     InvalidLength { length: usize, max: usize },
 }

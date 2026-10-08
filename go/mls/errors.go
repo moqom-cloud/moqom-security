@@ -40,8 +40,9 @@ var (
 	ErrCipherSuiteMismatch = errors.New("mls: cipher suite mismatch")
 	// ErrCryptoFailure is a primitive failing where it should not be able to.
 	ErrCryptoFailure = errors.New("mls: crypto failure")
-	// ErrInvalidLength is an exporter length that is negative or past
-	// HKDF-Expand's limit of 255 times the suite's hash length.
+	// ErrInvalidLength is an exporter or ExpandWithLabel length that is
+	// negative or past HKDF-Expand's limit of 255 times the suite's hash
+	// length.
 	ErrInvalidLength = errors.New("mls: invalid length")
 )
 

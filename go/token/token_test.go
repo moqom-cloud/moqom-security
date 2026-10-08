@@ -4,9 +4,11 @@
 package token
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -90,6 +92,29 @@ func TestErrorsCarryTheirClass(t *testing.T) {
 	}
 	if _, err := NewPublicKey("ES256", "k", nil); Class(err) != "key_unsupported" {
 		t.Errorf("an ES256 key gave %v", err)
+	}
+}
+
+func TestARawKeyOfTheWrongLengthIsRefused(t *testing.T) {
+	signer, _ := NewSigner(seed(1))
+	mldsa := signer.PublicKey().Bytes()
+	ed := bytes.Repeat([]byte{7}, ed25519.PublicKeySize)
+	if _, err := NewPublicKey(MLDSA65, "k", mldsa); err != nil {
+		t.Errorf("an ML-DSA-65 key gave %v", err)
+	}
+	if _, err := NewPublicKey(EdDSA, "k", ed); err != nil {
+		t.Errorf("an Ed25519 key gave %v", err)
+	}
+	for _, c := range []struct {
+		algorithm Algorithm
+		raw       []byte
+	}{
+		{MLDSA65, mldsa[:len(mldsa)-1]}, {MLDSA65, append(slices.Clone(mldsa), 0)}, {MLDSA65, ed}, {MLDSA65, nil},
+		{EdDSA, ed[:31]}, {EdDSA, append(slices.Clone(ed), 0)}, {EdDSA, mldsa}, {EdDSA, nil},
+	} {
+		if _, err := NewPublicKey(c.algorithm, "k", c.raw); !errors.Is(err, ErrKeyInvalid) || Class(err) != "key_invalid" {
+			t.Errorf("%s key of %d bytes gave %v", c.algorithm, len(c.raw), err)
+		}
 	}
 }
 

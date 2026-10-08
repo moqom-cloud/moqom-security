@@ -144,8 +144,22 @@ func (s CipherSuite) expand(secret, info []byte, length int) []byte {
 	return out
 }
 
-// ExpandWithLabel is RFC 9420 §5.1.3's.
-func (s CipherSuite) ExpandWithLabel(secret []byte, label string, context []byte, length int) []byte {
+// ExpandWithLabel is RFC 9420 §5.1.3's. A length that is negative or past 255
+// times the suite's hash length, HKDF-Expand's limit, is ErrInvalidLength.
+func (s CipherSuite) ExpandWithLabel(secret []byte, label string, context []byte, length int) ([]byte, error) {
+	if limit := s.maxExpandLength(); length < 0 || length > limit {
+		return nil, fmt.Errorf("%w: %d bytes, at most %d", ErrInvalidLength, length, limit)
+	}
+	return s.expandWithLabel(secret, label, context, length), nil
+}
+
+// maxExpandLength is HKDF-Expand's limit of 255 times the hash length, which
+// for every suite here also fits ExpandWithLabel's 16-bit length.
+func (s CipherSuite) maxExpandLength() int { return 255 * s.HashLength() }
+
+// expandWithLabel is ExpandWithLabel for a length the caller fixes within
+// maxExpandLength.
+func (s CipherSuite) expandWithLabel(secret []byte, label string, context []byte, length int) []byte {
 	var info writer
 	info.uint16(uint16(length))
 	info.vector([]byte("MLS 1.0 " + label))
@@ -155,7 +169,7 @@ func (s CipherSuite) ExpandWithLabel(secret []byte, label string, context []byte
 
 // DeriveSecret is RFC 9420 §5.1.3's.
 func (s CipherSuite) DeriveSecret(secret []byte, label string) []byte {
-	return s.ExpandWithLabel(secret, label, nil, s.HashLength())
+	return s.expandWithLabel(secret, label, nil, s.HashLength())
 }
 
 // RefHash is RFC 9420 §5.2's.

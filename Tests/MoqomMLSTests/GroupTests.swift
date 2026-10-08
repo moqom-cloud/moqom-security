@@ -233,6 +233,7 @@ struct MLSGroupTests {
         let group = try MLSGroup.create(groupID: room, bundle: bundle("alice/a", suite))
         let maximum = 255 * suite.hashLength
         #expect(try group.exporter(label: "x", length: maximum).count == maximum)
+        #expect(try group.exporter(label: "x", length: 0).isEmpty)
         for length in [maximum + 1, 1 << 16, 1 << 17, -1] {
             #expect(throws: MLSError.invalidLength(length: length, maximum: maximum)) {
                 try group.exporter(label: "x", length: length)
@@ -240,6 +241,25 @@ struct MLSGroupTests {
         }
         do {
             _ = try group.exporter(label: "x", length: maximum + 1)
+        } catch {
+            #expect(error.errorClass == "invalid-length")
+        }
+    }
+
+    @Test("ExpandWithLabel refuses a length past 255 times the hash length or out of 16 bits", arguments: MLSCipherSuite.supported)
+    func expandWithLabelLength(suite: MLSCipherSuite) throws {
+        let secret = Data(repeating: 1, count: suite.hashLength)
+        let maximum = 255 * suite.hashLength
+        for length in [0, maximum] {
+            #expect(try suite.expandWithLabel(secret, label: "x", context: Data(), length: length).count == length)
+        }
+        for length in [maximum + 1, 1 << 16, 1 << 17, -1, Int.min, Int.max] {
+            #expect(throws: MLSError.invalidLength(length: length, maximum: maximum)) {
+                try suite.expandWithLabel(secret, label: "x", context: Data(), length: length)
+            }
+        }
+        do {
+            _ = try suite.expandWithLabel(secret, label: "x", context: Data(), length: maximum + 1)
         } catch {
             #expect(error.errorClass == "invalid-length")
         }

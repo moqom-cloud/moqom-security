@@ -136,7 +136,7 @@ impl EpochSecrets {
         psk_secret: Option<&[u8]>,
         encoded_context: &[u8],
     ) -> Self {
-        let joiner = suite.expand_with_label(
+        let joiner = suite.expand_label(
             &suite.extract(init_secret, commit_secret),
             "joiner",
             encoded_context,
@@ -152,7 +152,7 @@ impl EpochSecrets {
         encoded_context: &[u8],
     ) -> Self {
         let member = suite.extract(&joiner, &psk(suite, psk_secret));
-        let epoch = suite.expand_with_label(&member, "epoch", encoded_context, suite.hash_length());
+        let epoch = suite.expand_label(&member, "epoch", encoded_context, suite.hash_length());
         let derived = |label| suite.derive_secret(&epoch, label);
         Self {
             cipher_suite: suite,
@@ -178,7 +178,7 @@ impl EpochSecrets {
     /// 255 times the suite's hash length.
     pub fn exporter(&self, label: &str, context: &[u8], length: usize) -> Result<Vec<u8>> {
         let s = self.cipher_suite;
-        let max = 255 * s.hash_length();
+        let max = s.max_expand_length();
         if length > max {
             return Err(Error::InvalidLength { length, max });
         }
@@ -187,7 +187,7 @@ impl EpochSecrets {
         info.vector(format!("MLS 1.0 {label}").as_bytes());
         info.vector(&[]);
         let secret = s.expand(&self.exporter_secret, &info.into_bytes(), s.hash_length());
-        Ok(s.expand_with_label(&secret, "exported", &s.hash(context), length))
+        Ok(s.expand_label(&secret, "exported", &s.hash(context), length))
     }
 }
 

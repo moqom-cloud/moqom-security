@@ -41,7 +41,10 @@ the other two generated.
   defines it. HKDF-Expand produces at most 255 times the suite's hash length:
   8,160 bytes in `0xF0A1` and `0x0001`, 12,240 in `0xF0AA`. A longer (or, in
   Swift and Go, negative) length is refused as `invalid-length` in all three
-  languages. The SFrame base key for an epoch is
+  languages, and so is the same length asked of the public `ExpandWithLabel`
+  (Go), `expand_with_label` (Rust) or `expandWithLabel` (Swift), which return
+  that error rather than panicking or trapping. `DeriveSecret` always expands
+  to the hash length, so it cannot fail. The SFrame base key for an epoch is
   `exporter("SFrame 1.0 Base Key", "", Nk)`. Each member's KID is
   `(leaf << 4) | (epoch % 16)`, built by `MoqomSFrame`'s `SFrameKeyID` in
   Swift.
@@ -204,9 +207,10 @@ let base = try MLSAudience.open(envelope, privateKey: viewer.privateKey, groupID
 
 The suite primitives are on `MLSCipherSuite`: `expandWithLabel`,
 `deriveSecret`, `refHash`, `signWithLabel`, `verifyWithLabel`,
-`encryptWithLabel`, `decryptWithLabel` and the key-pair generators. The key
-schedule is `MLSGroupContext` and `MLSEpochSecrets.derive(...)` /
-`.exporter(...)`.
+`encryptWithLabel`, `decryptWithLabel` and the key-pair generators;
+`expandWithLabel` throws `MLSError.invalidLength(length:maximum:)` for a
+negative length or one past 255 times the hash length. The key schedule is
+`MLSGroupContext` and `MLSEpochSecrets.derive(...)` / `.exporter(...)`.
 
 ### Go
 
@@ -233,8 +237,10 @@ base, err := mls.OpenAudience(env, priv, id, 7)
 
 The suite primitives are methods on `mls.CipherSuite`: `ExpandWithLabel`,
 `DeriveSecret`, `RefHash`, `SignWithLabel`, `VerifyWithLabel`,
-`EncryptWithLabel` and `DecryptWithLabel`. The key schedule is
-`mls.GroupContext`, `mls.DeriveEpochSecrets` and `(*EpochSecrets).Exporter`.
+`EncryptWithLabel` and `DecryptWithLabel`; `ExpandWithLabel` returns
+`ErrInvalidLength` past 255 times the hash length or for a negative length.
+The key schedule is `mls.GroupContext`, `mls.DeriveEpochSecrets` and
+`(*EpochSecrets).Exporter`.
 `(*KeyPackageBundle).PrivateKeys` and `mls.NewKeyPackageBundle` store and
 restore a bundle.
 
@@ -263,9 +269,10 @@ let base = audience::open(&envelope, &private, &id, 7)?;
 
 The suite primitives are methods on `CipherSuite`: `expand_with_label`,
 `derive_secret`, `ref_hash`, `sign_with_label`, `verify_with_label`,
-`encrypt_with_label`, `decrypt_with_label` and `kem_public_key`. The key
-schedule is `GroupContext`, `EpochSecrets::derive` and
-`EpochSecrets::exporter`.
+`encrypt_with_label`, `decrypt_with_label` and `kem_public_key`;
+`expand_with_label` returns `Error::InvalidLength { length, max }` past 255
+times the hash length. The key schedule is `GroupContext`,
+`EpochSecrets::derive` and `EpochSecrets::exporter`.
 
 `Group`, `PendingCommit`, `Processed` and `EpochSecrets` implement `Debug`
 with every secret and private key left out.
@@ -296,7 +303,7 @@ these classes:
 | `not-addressed`         | A Welcome or commit that holds nothing for this member.                     |
 | `cipher-suite-mismatch` | A key package or Welcome in a different suite from the group.               |
 | `crypto-failure`        | The platform's crypto refused an operation (key generation, a bad private key). |
-| `invalid-length`        | An exporter length past 255 times the suite's hash length, or negative.     |
+| `invalid-length`        | An exporter or ExpandWithLabel length past 255 times the suite's hash length, or negative. |
 
 Being removed by a commit is an outcome, not an error. Swift returns
 `.removed`, Go returns `removed == true`, and Rust returns

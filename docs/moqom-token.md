@@ -220,8 +220,10 @@ let claims = verifier.verify(jws.as_bytes(), SystemTime::now())?;
 // Err(moqom_token::Error::Expired), …; error.class() == "expired"
 ```
 
-`PublicKey` has `ml_dsa_65(id, bytes)`, `ed25519(id, bytes)`,
-`verifies(msg, sig)` and `jwk()`. `key_id(raw)` derives a key ID. `Signer` has
+`PublicKey` has `ml_dsa_65(id, bytes)` and `ed25519(id, bytes)`, which refuse
+the wrong length with `KeyError::Invalid`, `verifies(msg, sig)` and `jwk()`;
+its fields are public to read, and it cannot be built field by field outside
+the crate. `key_id(raw)` derives a key ID. `Signer` has
 `generate()`, `seed()`, `id()`, `public_key()` and `sign_message(msg)`.
 `Verifier` has `is_empty()`, `key(id)`, `keys()`, `issuer()` and `tenant()`.
 Loading a key, a set or a seed fails with `KeyError` (`Malformed`,
@@ -247,7 +249,8 @@ let claims = try verifier.verify(jws, now: Date())        // throws(TokenError)
 // TokenError.expired, …; error.vectorClass == "expired"
 ```
 
-`PublicKey(id:algorithm:rawRepresentation:)` has `derivedID(for:)`,
+`PublicKey(id:algorithm:rawRepresentation:)`, which throws
+`.invalid(kid:reason:)` for the wrong length, has `derivedID(for:)`,
 `isValidSignature(_:for:)` and `jwk`. `Signer` has `keyID`, `seed`,
 `publicKey` and `signature(for:)`. `Verifier` has `isEmpty` and `key(_:)`.
 `PublicKey.SetError` is `.malformed(why)`, `.unsupported(kid:)`,
@@ -283,7 +286,7 @@ relay closes a session with them:
 - `claims are not JSON`
 - `no expiry`
 
-Loading a key set:
+Loading a key set, or a raw key (the `key_invalid` row):
 
 | Class | Go | Rust (`KeyError`) | Swift (`PublicKey.SetError`) | Meaning |
 | --- | --- | --- | --- | --- |
@@ -347,7 +350,3 @@ The runners:
 - The library does not track token IDs (`jti`), so it does not detect replay.
   A token is a bearer of rights for at most fifteen minutes, and the
   proof-of-possession check is what binds it to a session.
-- Constructing a `PublicKey` directly from raw bytes checks the length in Go
-  (`NewPublicKey`) but not in Rust (`PublicKey::ml_dsa_65`, `ed25519`) or Swift
-  (`PublicKey(id:algorithm:rawRepresentation:)`). A key of the wrong length
-  there verifies nothing. JWK sets are checked the same way in all three.

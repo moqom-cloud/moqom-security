@@ -77,13 +77,13 @@ func DeriveEpochSecrets(initSecret, commitSecret, pskSecret []byte, context Grou
 // deriveEpoch is the same over a GroupContext already serialised, which is how
 // another suite's vectors run through the same hash and KDF.
 func deriveEpoch(suite CipherSuite, initSecret, commitSecret, pskSecret, encodedContext []byte) *EpochSecrets {
-	joiner := suite.ExpandWithLabel(suite.extract(initSecret, commitSecret), "joiner", encodedContext, suite.HashLength())
+	joiner := suite.expandWithLabel(suite.extract(initSecret, commitSecret), "joiner", encodedContext, suite.HashLength())
 	return deriveFromJoiner(suite, joiner, pskSecret, encodedContext)
 }
 
 func deriveFromJoiner(suite CipherSuite, joiner, pskSecret, encodedContext []byte) *EpochSecrets {
 	member := suite.extract(joiner, psk(suite, pskSecret))
-	epoch := suite.ExpandWithLabel(member, "epoch", encodedContext, suite.HashLength())
+	epoch := suite.expandWithLabel(member, "epoch", encodedContext, suite.HashLength())
 	derived := func(label string) []byte { return suite.DeriveSecret(epoch, label) }
 	return &EpochSecrets{
 		CipherSuite:        suite,
@@ -119,7 +119,7 @@ func welcomeSecret(suite CipherSuite, joiner, pskSecret []byte) []byte {
 // 255 times the suite's hash length is ErrInvalidLength.
 func (e *EpochSecrets) Exporter(label string, context []byte, length int) ([]byte, error) {
 	s := e.CipherSuite
-	if limit := 255 * s.HashLength(); length < 0 || length > limit {
+	if limit := s.maxExpandLength(); length < 0 || length > limit {
 		return nil, fmt.Errorf("%w: %d bytes, at most %d", ErrInvalidLength, length, limit)
 	}
 	var info writer
@@ -127,7 +127,7 @@ func (e *EpochSecrets) Exporter(label string, context []byte, length int) ([]byt
 	info.vector(append([]byte("MLS 1.0 "), label...))
 	info.vector(nil)
 	secret := s.expand(e.ExporterSecret, info.bytes, s.HashLength())
-	return s.ExpandWithLabel(secret, "exported", s.hash(context), length), nil
+	return s.expandWithLabel(secret, "exported", s.hash(context), length), nil
 }
 
 // SFrameExporterLabel is the label RFC 9605 §5.2 exports an epoch's SFrame
