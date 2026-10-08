@@ -1,0 +1,38 @@
+moqom-security — MOQOM's token, proof, SFrame and MLS libraries
+Copyright 2026 Elliott Wave LLC. All rights reserved except as licensed below.
+
+Licensed under the Apache License, Version 2.0; see LICENSE.
+
+"MOQOM" and the MOQOM logo are trademarks of Elliott Wave LLC. The Apache
+License grants no right to use them (Section 6).
+
+Elliott Wave LLC has patent applications pending. Section 3 of the Apache
+License governs what patent rights accompany this software, and no other patent
+license is granted, expressly or by implication.
+
+These libraries compose the cryptographic primitives of each platform
+(CryptoKit on Apple platforms, the Go standard library, and aws-lc-rs in Rust)
+and implement no primitive of their own.
+
+Third-party material
+
+vectors/sframe/rfc9605.json holds test vectors copied from RFC 9605,
+Appendix C. Copyright (c) 2024 IETF Trust and the persons identified as the
+document authors. All rights reserved. Code Components extracted from IETF
+documents are licensed under the Revised BSD License, as described in Section 4
+of the IETF Trust's Legal Provisions Relating to IETF Documents
+(https://trustee.ietf.org/license-info).
+
+vectors/mls/mlswg-*.json hold test vectors copied, with a "name" field added,
+from the MLS working group's repository, github.com/mlswg/mls-implementations,
+at commit 2034fe72e0c805a683ba76165660c834f2a8142a. They are Contributions to
+the IETF under BCP 78 and remain the property of their contributors.
+
+vectors/mls/xwing-draft.json holds test vectors copied, with a "name" field
+added, from github.com/dconnolly/draft-connolly-cfrg-xwing-kem at commit
+984c2f7a93b8f8d8f8073ebb53f9f4ce50b5babd, and vectors/mls/hpkewg-xwing.json
+holds a test vector copied from github.com/hpkewg/hpke-pq at commit
+6433c8fce0b8b749dfc86c1095081a88698ccfab. Both repositories state that their
+material is Contributions to the IETF under BCP 78 and BCP 79 and the IETF
+Trust Legal Provisions, under which code components are licensed under the
+Simplified BSD License; they remain the property of their contributors.

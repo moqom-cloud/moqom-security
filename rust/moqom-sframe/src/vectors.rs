@@ -17,15 +17,20 @@ use crate::{
     mls_key_id,
 };
 
-fn cases(name: &str) -> Vec<Value> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../vectors/sframe")
-        .join(name);
-    let file: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+/// `None` in a packaged crate, which does not carry the repository's
+/// `vectors/` directory. In the repository a missing file fails.
+fn cases(name: &str) -> Option<Vec<Value>> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let dir = root.join("../../vectors/sframe");
+    if !dir.exists() && root.join("Cargo.toml.orig").exists() {
+        eprintln!("{name}: skipped, the shared vectors are not part of the package");
+        return None;
+    }
+    let file: Value = serde_json::from_slice(&std::fs::read(dir.join(name)).unwrap()).unwrap();
     assert_eq!(file["library"], "moqom-sframe", "{name}");
     let cases = file["cases"].as_array().unwrap().clone();
     assert!(!cases.is_empty(), "{name}");
-    cases
+    Some(cases)
 }
 
 fn hex(value: &Value) -> Vec<u8> {
@@ -90,7 +95,10 @@ fn check(name: &str, result: Result<Vec<u8>, Error>, case: &Value) {
 #[test]
 fn rfc9605() {
     let (mut headers, mut sframes, mut skipped) = (0, 0, 0);
-    for case in cases("rfc9605.json") {
+    let Some(vectors) = cases("rfc9605.json") else {
+        return;
+    };
+    for case in vectors {
         let name = case["name"].as_str().unwrap();
         if case.get("skip").is_some() {
             skipped += 1;
@@ -187,7 +195,10 @@ fn rfc9605() {
 
 #[test]
 fn metadata_vectors() {
-    for case in cases("metadata.json") {
+    let Some(vectors) = cases("metadata.json") else {
+        return;
+    };
+    for case in vectors {
         let name = case["name"].as_str().unwrap();
         match (metadata(&case["metadata"]).encode(), case.get("error")) {
             (Ok(bytes), None) => assert_eq!(
@@ -205,7 +216,10 @@ fn metadata_vectors() {
 
 #[test]
 fn kid_vectors() {
-    for case in cases("kid.json") {
+    let Some(vectors) = cases("kid.json") else {
+        return;
+    };
+    for case in vectors {
         let name = case["name"].as_str().unwrap();
         let kid = u64_of(&case["kid"]);
         let leaf = u32::try_from(u64_of(&case["leaf"])).unwrap();
@@ -226,7 +240,10 @@ fn kid_vectors() {
 
 #[test]
 fn nonce_vectors() {
-    for case in cases("nonce.json") {
+    let Some(vectors) = cases("nonce.json") else {
+        return;
+    };
+    for case in vectors {
         let name = case["name"].as_str().unwrap();
         let (kid, ctr) = (u64_of(&case["kid"]), u64_of(&case["ctr"]));
         let key = Key::new(kid, &hex(&case["base_key_hex"]), suite(&case)).unwrap();
@@ -260,7 +277,10 @@ fn nonce_vectors() {
 
 #[test]
 fn seal_open_vectors() {
-    for case in cases("seal-open.json") {
+    let Some(vectors) = cases("seal-open.json") else {
+        return;
+    };
+    for case in vectors {
         let name = case["name"].as_str().unwrap();
         let base = hex(&case["base_key_hex"]);
         let kid = u64_of(&case["kid"]);
@@ -285,7 +305,10 @@ fn seal_open_vectors() {
 
 #[test]
 fn open_vectors() {
-    for case in cases("open.json") {
+    let Some(vectors) = cases("open.json") else {
+        return;
+    };
+    for case in vectors {
         let name = case["name"].as_str().unwrap();
         let context = Context::new(
             suite(&case),
@@ -303,7 +326,10 @@ fn open_vectors() {
 
 #[test]
 fn replay_vectors() {
-    for case in cases("replay.json") {
+    let Some(vectors) = cases("replay.json") else {
+        return;
+    };
+    for case in vectors {
         let name = case["name"].as_str().unwrap();
         let context = Context::with_replay_window(
             suite(&case),

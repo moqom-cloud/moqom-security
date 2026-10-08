@@ -7,6 +7,8 @@ keywords = ["moq", "jws", "ml-dsa", "post-quantum", "token"]
 categories = ["cryptography", "authentication"]
 documentation = "https://docs.rs/moqom-token"
 homepage = "https://moqom.dev/security/libraries/token/"
+# The shared vectors live at the repository root, outside the package.
+exclude = ["tests/vectors.rs"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
