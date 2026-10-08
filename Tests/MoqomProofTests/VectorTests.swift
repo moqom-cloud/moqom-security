@@ -40,6 +40,7 @@ struct VectorTests {
         var now: Double
         var until: Double
         var spent: [String]?
+        var require_certificate: Bool?
         var proof: String
         var error: String?
     }
@@ -99,13 +100,17 @@ struct VectorTests {
             for nonce in vector.spent ?? [] {
                 try store.spend(nonce, until: until, now: now)
             }
-            let checker = Checker(store: store, window: try #require(file.window_seconds))
+            let checker = Checker(
+                store: store,
+                window: try #require(file.window_seconds),
+                requireCertificate: vector.require_certificate ?? false
+            )
             func check() -> String? {
                 do {
                     try checker.check(
                         Data(vector.proof.utf8),
                         token: Data(vector.token.utf8),
-                        certificateHash: Data(hex: vector.certificate_hash_hex),
+                        certificateHash: vector.certificate_hash_hex.isEmpty ? nil : Data(hex: vector.certificate_hash_hex),
                         thumbprint: vector.thumbprint,
                         now: now,
                         until: until

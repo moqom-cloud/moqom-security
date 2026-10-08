@@ -16,15 +16,20 @@ public struct Checker: Sendable {
     public let store: any NonceStore
     public var algorithms: Set<ProofAlgorithm>
     public var window: TimeInterval
+    /// Refuse every proof when ``check(_:token:certificateHash:thumbprint:now:until:)``
+    /// is given no certificate, rather than accepting only proofs that name none.
+    public var requireCertificate: Bool
 
     public init(
         store: any NonceStore,
         algorithms: Set<ProofAlgorithm> = Set(ProofAlgorithm.allCases),
-        window: TimeInterval = Checker.defaultWindow
+        window: TimeInterval = Checker.defaultWindow,
+        requireCertificate: Bool = false
     ) {
         self.store = store
         self.algorithms = algorithms
         self.window = window
+        self.requireCertificate = requireCertificate
     }
 
     private struct Header: Decodable {
@@ -74,8 +79,10 @@ public struct Checker: Sendable {
     /// whose SHA-256 is `certificateHash`, at a time within the window of
     /// `now`, and spend its nonce until `until` (normally the token's expiry).
     ///
-    /// `certificateHash` is `nil` only where the checker has no certificate of
-    /// its own; the binding is then not checked.
+    /// `certificateHash` is `nil` (or empty) only where the checker has no
+    /// certificate of its own. The proof must then name no certificate either,
+    /// since one it names cannot be checked, and a checker with
+    /// ``requireCertificate`` refuses it.
     ///
     /// The signature is verified before any claim is read, and the nonce is
     /// spent only once every other check has passed, so a corrupted proof
@@ -129,7 +136,9 @@ public struct Checker: Sendable {
         guard Self.constantTimeEqual(claims.ath, Data(SHA256.hash(data: token)).base64URL) else {
             throw .wrongToken
         }
-        if let certificateHash, !Self.constantTimeEqual(claims.rel, certificateHash.base64URL) {
+        let certificate = certificateHash.flatMap { $0.isEmpty ? nil : $0 }
+        if certificate == nil, requireCertificate { throw .wrongCertificate }
+        guard Self.constantTimeEqual(claims.rel, certificate?.base64URL ?? "") else {
             throw .wrongCertificate
         }
         guard let iat = claims.iat else { throw .malformed("no iat") }

@@ -51,6 +51,8 @@ struct ProofCase {
     until: u64,
     #[serde(default)]
     spent: Vec<String>,
+    #[serde(default)]
+    require_certificate: bool,
     proof: String,
     #[serde(default)]
     error: String,
@@ -112,7 +114,8 @@ fn proofs() {
     for case in file.cases {
         let (now, until) = (at(case.now), at(case.until));
         let checker = Checker::new(MemoryNonceStore::default())
-            .with_window(Duration::from_secs(file.window_seconds));
+            .with_window(Duration::from_secs(file.window_seconds))
+            .with_certificate_required(case.require_certificate);
         for nonce in &case.spent {
             checker.store().spend(nonce, until, now).expect("spent");
         }
@@ -121,7 +124,7 @@ fn proofs() {
             checker.check(
                 case.proof.as_bytes(),
                 case.token.as_bytes(),
-                Some(&certificate),
+                (!certificate.is_empty()).then_some(certificate.as_slice()),
                 &case.thumbprint,
                 now,
                 until,

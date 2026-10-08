@@ -112,7 +112,7 @@ func TestProofVectors(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			checker := Checker{Store: store, Window: time.Duration(file.Window) * time.Second}
+			checker := Checker{Store: store, Window: time.Duration(file.Window) * time.Second, RequireCertificate: v.RequireCertificate}
 			err := checker.Check([]byte(v.Proof), []byte(v.Token), decodeHex(t, v.CertificateHashHex), v.Thumbprint, now, until)
 			if Class(err) != v.Error {
 				t.Fatalf("Check() = %v (%q), want %q", err, Class(err), v.Error)

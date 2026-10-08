@@ -25,6 +25,7 @@ pub struct Checker<S = MemoryNonceStore> {
     store: S,
     algorithms: Vec<Algorithm>,
     window: Duration,
+    require_certificate: bool,
 }
 
 #[derive(Deserialize)]
@@ -56,6 +57,7 @@ impl<S: NonceStore> Checker<S> {
             store,
             algorithms: Algorithm::ALL.to_vec(),
             window: DEFAULT_WINDOW,
+            require_certificate: false,
         }
     }
 
@@ -73,6 +75,14 @@ impl<S: NonceStore> Checker<S> {
         self
     }
 
+    /// Refuse every proof when [`Checker::check`] is given no certificate,
+    /// rather than accepting only proofs that name none.
+    #[must_use]
+    pub const fn with_certificate_required(mut self, required: bool) -> Self {
+        self.require_certificate = required;
+        self
+    }
+
     /// The nonce store.
     #[must_use]
     pub const fn store(&self) -> &S {
@@ -84,8 +94,10 @@ impl<S: NonceStore> Checker<S> {
     /// whose SHA-256 is `certificate_hash`, at a time within the window of
     /// `now`, and spend its nonce until `until` (normally the token's expiry).
     ///
-    /// `certificate_hash` is `None` only where the checker has no certificate
-    /// of its own, an in-process harness; the binding is then not checked.
+    /// `certificate_hash` is `None` (or empty) only where the checker has no
+    /// certificate of its own, an in-process harness. The proof must then name
+    /// no certificate either, since one it names cannot be checked, and a
+    /// checker built [`Checker::with_certificate_required`] refuses it.
     ///
     /// The signature is verified before any claim is read, and the nonce is
     /// spent only once every other check has passed, so a corrupted proof
@@ -143,9 +155,12 @@ impl<S: NonceStore> Checker<S> {
         if !constant_time_eq(claims.ath.as_bytes(), sha256_b64(token).as_bytes()) {
             return Err(Error::WrongToken);
         }
-        if let Some(certificate) = certificate_hash
-            && !constant_time_eq(claims.rel.as_bytes(), b64(certificate).as_bytes())
-        {
+        let certificate = certificate_hash.filter(|hash| !hash.is_empty());
+        if certificate.is_none() && self.require_certificate {
+            return Err(Error::WrongCertificate);
+        }
+        let expected = certificate.map(b64).unwrap_or_default();
+        if !constant_time_eq(claims.rel.as_bytes(), expected.as_bytes()) {
             return Err(Error::WrongCertificate);
         }
         let iat = claims.iat.ok_or(Error::Malformed("no iat"))?;

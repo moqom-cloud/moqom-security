@@ -34,6 +34,9 @@ type Checker struct {
 	// Window is how far `iat` may be from now, either way; zero means
 	// [DefaultWindow].
 	Window time.Duration
+	// RequireCertificate refuses every proof when Check is given no
+	// certificate hash, rather than accepting only proofs that name none.
+	RequireCertificate bool
 }
 
 type header struct {
@@ -59,6 +62,10 @@ type claims struct {
 // thumbprint (the token's `cnf.jkt`), over token, for the certificate whose
 // SHA-256 is certificateHash, at a time within the window of now, and spends
 // its nonce until until (normally the token's expiry).
+//
+// An empty certificateHash means the checker has no certificate of its own.
+// The proof must then name no certificate either, since one it names cannot be
+// checked, and a checker with RequireCertificate refuses it.
 //
 // The signature is verified before any claim is read, and the nonce is spent
 // only once every other check has passed, so a corrupted proof cannot burn a
@@ -128,6 +135,9 @@ func (c *Checker) Check(proof, token, certificateHash []byte, thumbprint string,
 	ath := sha256.Sum256(token)
 	if subtle.ConstantTimeCompare([]byte(cl.Ath), []byte(b64.EncodeToString(ath[:]))) != 1 {
 		return ErrWrongToken
+	}
+	if len(certificateHash) == 0 && c.RequireCertificate {
+		return fmt.Errorf("%w: the checker requires a certificate and has none", ErrWrongCertificate)
 	}
 	if subtle.ConstantTimeCompare([]byte(cl.Rel), []byte(b64.EncodeToString(certificateHash))) != 1 {
 		return ErrWrongCertificate
