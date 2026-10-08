@@ -55,7 +55,7 @@ public enum TokenError: Error, Hashable, Sendable, CustomStringConvertible {
     case wrongTenant
     /// Does not name a subject, a tenant and a device.
     case incomplete
-    /// `cnf.jkt` is not an RFC 7638 SHA-256 thumbprint. Signing only.
+    /// `cnf.jkt` is not an RFC 7638 SHA-256 thumbprint.
     case thumbprint
 
     public var vectorClass: String {

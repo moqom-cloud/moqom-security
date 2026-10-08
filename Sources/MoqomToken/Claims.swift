@@ -9,7 +9,9 @@ import Foundation
 /// added later is as likely to narrow a grant as to widen one, and a verifier
 /// that ignored a narrowing would enforce more than was issued.
 public struct Grant: Hashable, Sendable {
-    /// The room it admits the holder to; empty for none.
+    /// The room it admits the holder to; empty names none. The library carries
+    /// it without interpreting it: what a token naming no room may do is the
+    /// product's rule.
     public var room: String
     /// Media kinds the holder may publish (`pub`), a bitmask whose bit positions
     /// belong to the deployment's protocol.
@@ -123,10 +125,13 @@ public struct Claims: Hashable, Sendable {
         return Data(JSON.object(members).utf8)
     }
 
-    /// Whether `thumbprint` is an RFC 7638 SHA-256 thumbprint: base64url
-    /// decoding to 32 bytes.
+    /// Whether `thumbprint` is an RFC 7638 SHA-256 thumbprint: 43 characters
+    /// of canonical unpadded base64url, decoding to 32 bytes. A token bound to
+    /// anything else is bound to no key at all, since no proof of possession
+    /// can match it, so a signer refuses to mint one and a verifier to accept
+    /// one (``TokenError/thumbprint``).
     public static func isValidThumbprint(_ thumbprint: String) -> Bool {
-        Data(base64URL: thumbprint)?.count == 32
+        thumbprint.utf8.count == 43 && Data(base64URL: thumbprint)?.count == 32
     }
 
     /// The signing input under key `kid`, checked as `Signer.sign(_:)` checks it.

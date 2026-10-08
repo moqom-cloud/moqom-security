@@ -5,12 +5,15 @@ use aws_lc_rs::signature::{
     ED25519, KeyPair, ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair, UnparsedPublicKey,
     VerificationAlgorithm,
 };
-use aws_lc_rs::{digest, error, rand};
+use std::collections::HashSet;
+
+use aws_lc_rs::{digest, rand};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
 use zeroize::Zeroizing;
 
+use crate::verify::UniqueMembers;
 use crate::{Claims, Error};
 
 /// What a key verifies with.
@@ -117,13 +120,18 @@ impl PublicKey {
 
     /// Read a JWK set, as a bare array or wrapped in `{"keys": [...]}`.
     ///
-    /// Every key must be AKP/ML-DSA-65 or OKP/Ed25519 of the right length;
-    /// anything else is refused rather than skipped, because a set that silently
-    /// lost a key verifies fewer tokens than its author thinks.
+    /// The whole document is read first ([`KeyError::Malformed`]), then each
+    /// key in order: it must be AKP/ML-DSA-65 or OKP/Ed25519
+    /// ([`KeyError::Unsupported`]), its public key must be canonical base64url
+    /// of the right length ([`KeyError::Invalid`]), and its `kid` must not repeat
+    /// one before it ([`KeyError::DuplicateKeyId`]). A key that fails is refused
+    /// rather than skipped, because a set that silently lost a key verifies
+    /// fewer tokens than its author thinks. Members a key does not need (`use`,
+    /// `key_ops`) are ignored.
     ///
     /// # Errors
-    /// A description of what was wrong with the document, for whoever wrote it.
-    pub fn parse_set(document: &str) -> Result<Vec<Self>, String> {
+    /// The first [`KeyError`] in that order.
+    pub fn parse_set(document: &str) -> Result<Vec<Self>, KeyError> {
         #[derive(Deserialize)]
         struct Jwk {
             kty: String,
@@ -144,43 +152,110 @@ impl PublicKey {
             Bare(Vec<Jwk>),
         }
 
-        let parsed: Document =
-            serde_json::from_str(document).map_err(|e| format!("not a JWK set: {e}"))?;
+        serde_json::from_str::<UniqueMembers>(document)
+            .map_err(|e| KeyError::Malformed(e.to_string()))?;
+        let parsed: Document = serde_json::from_str(document).map_err(|_| {
+            KeyError::Malformed(
+                "not an array of JWKs or {\"keys\": [...]}, or a JWK with a missing, null or \
+                 mistyped member"
+                    .into(),
+            )
+        })?;
         let (Document::Wrapped { keys: jwks } | Document::Bare(jwks)) = parsed;
+        if jwks.iter().any(|jwk| jwk.kid.is_empty()) {
+            return Err(KeyError::Malformed("a key has an empty kid".into()));
+        }
 
-        jwks.into_iter()
-            .map(|jwk| {
-                let (algorithm, field, name) = match (jwk.kty.as_str(), jwk.crv.as_str()) {
-                    ("AKP", _) if jwk.alg == "ML-DSA-65" => {
-                        (Algorithm::MlDsa65, &jwk.public, "pub")
-                    }
-                    ("OKP", "Ed25519") => (Algorithm::Ed25519, &jwk.x, "x"),
-                    _ => {
-                        return Err(format!(
-                            "key {}: only AKP/ML-DSA-65 and OKP/Ed25519 are supported, got {}/{}{}",
-                            jwk.kid, jwk.kty, jwk.alg, jwk.crv
-                        ));
-                    }
-                };
-                let bytes = URL_SAFE_NO_PAD
-                    .decode(field.as_bytes())
-                    .map_err(|e| format!("key {}: {name} is not base64url: {e}", jwk.kid))?;
-                if bytes.len() != algorithm.public_key_bytes() {
-                    return Err(format!(
-                        "key {}: an {} public key is {} bytes, got {}",
-                        jwk.kid,
-                        algorithm.jose(),
-                        algorithm.public_key_bytes(),
-                        bytes.len()
-                    ));
-                }
-                Ok(Self {
-                    id: jwk.kid,
-                    algorithm,
-                    bytes,
-                })
-            })
-            .collect()
+        let mut seen = HashSet::new();
+        let mut keys = Vec::with_capacity(jwks.len());
+        for jwk in jwks {
+            let (algorithm, field, name) = match (jwk.kty.as_str(), jwk.crv.as_str()) {
+                ("AKP", _) if jwk.alg == "ML-DSA-65" => (Algorithm::MlDsa65, &jwk.public, "pub"),
+                ("OKP", "Ed25519") => (Algorithm::Ed25519, &jwk.x, "x"),
+                _ => return Err(KeyError::Unsupported { kid: jwk.kid }),
+            };
+            let Ok(bytes) = URL_SAFE_NO_PAD.decode(field.as_bytes()) else {
+                return Err(KeyError::Invalid {
+                    kid: jwk.kid,
+                    reason: if name == "pub" {
+                        "pub is not base64url"
+                    } else {
+                        "x is not base64url"
+                    },
+                });
+            };
+            if bytes.len() != algorithm.public_key_bytes() {
+                return Err(KeyError::Invalid {
+                    kid: jwk.kid,
+                    reason: match algorithm {
+                        Algorithm::MlDsa65 => "an ML-DSA-65 public key is 1,952 bytes",
+                        Algorithm::Ed25519 => "an Ed25519 public key is 32 bytes",
+                    },
+                });
+            }
+            if !seen.insert(jwk.kid.clone()) {
+                return Err(KeyError::DuplicateKeyId(jwk.kid));
+            }
+            keys.push(Self {
+                id: jwk.kid,
+                algorithm,
+                bytes,
+            });
+        }
+        Ok(keys)
+    }
+}
+
+/// Why a key, a key set or a seed was refused.
+///
+/// Each is one of the error classes the key set vectors name; see
+/// [`KeyError::class`].
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum KeyError {
+    /// Not a JWK set: not JSON, not an array or `{"keys": [...]}`, a key that is
+    /// not an object, a member that is null, of the wrong type or named twice,
+    /// or a key with no `kty` or no `kid`.
+    #[error("not a JWK set: {0}")]
+    Malformed(String),
+    /// A key that is not AKP/ML-DSA-65 or OKP/Ed25519.
+    #[error("key {kid}: only AKP/ML-DSA-65 and OKP/Ed25519 are supported")]
+    Unsupported {
+        /// The key's `kid`.
+        kid: String,
+    },
+    /// Key material that is not canonical base64url or not the algorithm's
+    /// length.
+    #[error("key {kid}: {reason}")]
+    Invalid {
+        /// The key's `kid`.
+        kid: String,
+        /// What was wrong with it.
+        reason: &'static str,
+    },
+    /// A set naming one `kid` twice. Which of the two a token's `kid` would
+    /// select is the kind of question a verifier must not answer by accident.
+    #[error("key ID {0} appears twice in the set")]
+    DuplicateKeyId(String),
+    /// A seed the ML-DSA-65 implementation will not load.
+    #[error("the seed is not an ML-DSA-65 seed")]
+    Seed,
+    /// The system random number generator failed.
+    #[error("the system random number generator failed")]
+    Random,
+}
+
+impl KeyError {
+    /// The vector error class. [`KeyError::Seed`] is `key_invalid`, and
+    /// [`KeyError::Random`] is `random`, which no vector names.
+    #[must_use]
+    pub const fn class(&self) -> &'static str {
+        match self {
+            Self::Malformed(_) => "set_malformed",
+            Self::Unsupported { .. } => "key_unsupported",
+            Self::Invalid { .. } | Self::Seed => "key_invalid",
+            Self::DuplicateKeyId(_) => "duplicate_kid",
+            Self::Random => "random",
+        }
     }
 }
 
@@ -204,9 +279,9 @@ impl Signer {
     /// [`key_id`] of its public half.
     ///
     /// # Errors
-    /// A seed aws-lc-rs will not accept.
-    pub fn from_seed(seed: &[u8; 32]) -> Result<Self, error::KeyRejected> {
-        let pair = PqdsaKeyPair::from_seed(&ML_DSA_65_SIGNING, seed)?;
+    /// [`KeyError::Seed`] for a seed the ML-DSA-65 implementation will not load.
+    pub fn from_seed(seed: &[u8; 32]) -> Result<Self, KeyError> {
+        let pair = PqdsaKeyPair::from_seed(&ML_DSA_65_SIGNING, seed).map_err(|_| KeyError::Seed)?;
         let id = key_id(pair.public_key().as_ref());
         Ok(Self {
             pair,
@@ -219,11 +294,11 @@ impl Signer {
     /// half. Store [`Signer::seed`] to load the same key again.
     ///
     /// # Errors
-    /// The system random number generator failed.
-    pub fn generate() -> Result<Self, error::Unspecified> {
+    /// [`KeyError::Random`] if the system random number generator failed.
+    pub fn generate() -> Result<Self, KeyError> {
         let mut seed = Zeroizing::new([0u8; 32]);
-        rand::fill(seed.as_mut())?;
-        Self::from_seed(&seed).map_err(|_| error::Unspecified)
+        rand::fill(seed.as_mut()).map_err(|_| KeyError::Random)?;
+        Self::from_seed(&seed)
     }
 
     /// The same key under another `kid`, for a deployment that names its keys

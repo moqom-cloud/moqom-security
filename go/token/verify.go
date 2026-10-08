@@ -5,7 +5,6 @@ package token
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,6 +42,9 @@ func (v *Verifier) ForTenant(tenant string) *Verifier {
 	return &Verifier{keys: v.keys, issuer: v.issuer, tenant: tenant}
 }
 
+// IsEmpty reports whether the verifier holds no key, and so verifies nothing.
+func (v *Verifier) IsEmpty() bool { return len(v.keys) == 0 }
+
 // Key is the key named id, if the set has one.
 func (v *Verifier) Key(id string) (PublicKey, bool) {
 	key, ok := v.keys[id]
@@ -54,7 +56,7 @@ func (v *Verifier) Key(id string) (PublicKey, bool) {
 // The signature is checked before any claim is read: acting on a claim from an
 // unverified token, even to word an error, is how a parser becomes an attack
 // surface. Then the claims, in this order: issuer, expiry, not-before,
-// lifetime, completeness, tenant.
+// lifetime, completeness, thumbprint, tenant.
 func (v *Verifier) Verify(token string, now time.Time) (Claims, error) {
 	if len(token) == 0 || len(token) > MaxTokenBytes {
 		return Claims{}, fmt.Errorf("%w: token length is out of range", ErrMalformed)
@@ -64,7 +66,7 @@ func (v *Verifier) Verify(token string, now time.Time) (Claims, error) {
 		return Claims{}, fmt.Errorf("%w: expected three segments", ErrMalformed)
 	}
 
-	headerBytes, err := base64.RawURLEncoding.Strict().DecodeString(parts[0])
+	headerBytes, err := decodeBase64URL(parts[0])
 	if err != nil {
 		return Claims{}, fmt.Errorf("%w: header is not base64url", ErrMalformed)
 	}
@@ -83,7 +85,7 @@ func (v *Verifier) Verify(token string, now time.Time) (Claims, error) {
 		return Claims{}, fmt.Errorf("%w: %q for a %s key", ErrUnsupported, parsed.Algorithm, key.algorithm)
 	}
 
-	signature, err := base64.RawURLEncoding.Strict().DecodeString(parts[2])
+	signature, err := decodeBase64URL(parts[2])
 	if err != nil {
 		return Claims{}, fmt.Errorf("%w: signature is not base64url", ErrMalformed)
 	}
@@ -91,7 +93,7 @@ func (v *Verifier) Verify(token string, now time.Time) (Claims, error) {
 		return Claims{}, ErrBadSignature
 	}
 
-	claimsBytes, err := base64.RawURLEncoding.Strict().DecodeString(parts[1])
+	claimsBytes, err := decodeBase64URL(parts[1])
 	if err != nil {
 		return Claims{}, fmt.Errorf("%w: claims are not base64url", ErrMalformed)
 	}
@@ -132,6 +134,9 @@ func (v *Verifier) check(claims Claims, now time.Time) error {
 	}
 	if claims.Subject == "" || claims.Tenant == "" || claims.Confirmation.Thumbprint == "" {
 		return ErrIncomplete
+	}
+	if !ValidThumbprint(claims.Confirmation.Thumbprint) {
+		return ErrThumbprint
 	}
 	if v.tenant != "" && claims.Tenant != v.tenant {
 		return fmt.Errorf("%w: %q", ErrWrongTenant, claims.Tenant)

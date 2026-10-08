@@ -359,11 +359,42 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 		refused("two segments", parts[0]+"."+parts[1], "malformed"),
 		refused("four segments", plain+".", "malformed"),
 		refused("too long", strings.Repeat("A", MaxTokenBytes+1), "malformed"),
+		// A decoder that skips line breaks reads these as the token without
+		// them; the signature segment is not signed, so that would be a second
+		// spelling of one token.
+		refused("signature segment with a line break", parts[0]+"."+parts[1]+"."+parts[2][:100]+"\n"+parts[2][100:], "malformed"),
+		refused("claims segment with a line break", keys.signRaw(current, mldsaHeader, parts[1][:20]+"\n"+parts[1][20:]), "malformed"),
+		refused("header segment with a line break", keys.signRaw(current, parts[0][:10]+"\r\n"+parts[0][10:], parts[1]), "malformed"),
 	)
 	if nonCanonical == parts[0] {
 		t.Fatal("the non-canonical header encoding is canonical")
 	}
+
+	boundTo := func(name, jkt string) verifyCase {
+		return refused(name, edit(baseClaims(), func(m map[string]any) {
+			m["cnf"] = map[string]any{"jkt": jkt}
+		}), "thumbprint")
+	}
+	for _, jkt := range badThumbprints() {
+		cases = append(cases, boundTo(jkt.name, jkt.value))
+	}
 	return cases
+}
+
+// badThumbprints are `cnf.jkt` values that are not an RFC 7638 SHA-256
+// thumbprint, which a signer refuses to mint and a verifier to accept.
+func badThumbprints() []struct{ name, value string } {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	last := vectorThumbprint[len(vectorThumbprint)-1]
+	return []struct{ name, value string }{
+		{"thumbprint of 32 characters", "OuXpLpEHW7dCPqjKWm8Zq1TfBb2nQ4Zt"},
+		{"thumbprint of 44 characters", vectorThumbprint + "A"},
+		{"thumbprint with padding", vectorThumbprint + "="},
+		{"thumbprint with a character outside base64url", vectorThumbprint[:42] + "+"},
+		{"thumbprint with non-canonical trailing bits", vectorThumbprint[:42] + string(alphabet[strings.IndexByte(alphabet, last)|1])},
+		{"thumbprint with a line break", vectorThumbprint[:21] + "\n" + vectorThumbprint[21:]},
+		{"thumbprint that is a device ID", vectorThumbprint[:16]},
+	}
 }
 
 func buildSign(t *testing.T, keys vectorKeys) []signCase {
@@ -403,6 +434,14 @@ func buildSign(t *testing.T, keys vectorKeys) []signCase {
 			m["cnf"] = map[string]any{"jkt": "MpXqvQAmv7Y3Kk9dHnJpLwRtUvXyZaBcDeFgHiJkLm+"}
 		}), Error: "thumbprint"},
 	}
+	for _, jkt := range badThumbprints()[1:] {
+		if strings.Contains(jkt.name, "outside base64url") {
+			continue
+		}
+		cases = append(cases, signCase{Name: jkt.name, Claims: encode(baseClaims(), func(m map[string]any) {
+			m["cnf"] = map[string]any{"jkt": jkt.value}
+		}), Error: "thumbprint"})
+	}
 	for i := range cases {
 		cases[i].Kid = current
 		if cases[i].Error != "" {
@@ -420,6 +459,116 @@ func buildSign(t *testing.T, keys vectorKeys) []signCase {
 		cases[i].SigningInput = signed[:strings.LastIndexByte(signed, '.')]
 	}
 	return cases
+}
+
+type keySetCase struct {
+	Name     string   `json:"name"`
+	Document string   `json:"document"`
+	Kids     []string `json:"kids"`
+	Error    string   `json:"error,omitempty"`
+}
+
+func buildKeySets(t *testing.T, keys vectorKeys) []keySetCase {
+	t.Helper()
+	jwk := func(kid string) string {
+		encoded, err := keys.public[kid].JWK()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(encoded)
+	}
+	current, next, legacy := jwk(keys.current()), jwk("pq-next"), jwk(keys.legacyID())
+	currentPub := keys.public[keys.current()].Bytes()
+	legacyX := base64.RawURLEncoding.EncodeToString(keys.public[keys.legacyID()].Bytes())
+	akp := func(kid, pub string) string {
+		return `{"kty":"AKP","alg":"ML-DSA-65","kid":"` + kid + `","pub":"` + pub + `"}`
+	}
+	okp := func(kid, x string) string { return `{"kty":"OKP","crv":"Ed25519","kid":"` + kid + `","x":"` + x + `"}` }
+	pub := base64.RawURLEncoding.EncodeToString(currentPub)
+	accepted := func(name, document string, kids ...string) keySetCase {
+		if kids == nil {
+			kids = []string{}
+		}
+		return keySetCase{Name: name, Document: document, Kids: kids}
+	}
+	refused := func(name, document, class string) keySetCase {
+		return keySetCase{Name: name, Document: document, Error: class}
+	}
+	all := []string{keys.current(), "pq-next", keys.legacyID()}
+	return []keySetCase{
+		accepted("wrapped", `{"keys":[`+current+`,`+next+`,`+legacy+`]}`, all...),
+		accepted("bare array", `[`+current+`,`+next+`,`+legacy+`]`, all...),
+		accepted("empty", `{"keys":[]}`),
+		accepted("members a key does not need are ignored",
+			`{"keys":[{"kty":"OKP","crv":"Ed25519","use":"sig","key_ops":["verify"],"kid":"old","x":"`+legacyX+`"}],"cache":"max-age=60"}`, "old"),
+		accepted("member names that differ only in case are not duplicates",
+			`[{"kty":"OKP","crv":"Ed25519","kid":"old","KID":"other","x":"`+legacyX+`"}]`, "old"),
+
+		refused("the same kid twice", `{"keys":[`+akp("k", pub)+`,`+akp("k", base64.RawURLEncoding.EncodeToString(keys.public["pq-next"].Bytes()))+`]}`, "duplicate_kid"),
+		refused("the same key twice", `{"keys":[`+current+`,`+current+`]}`, "duplicate_kid"),
+		refused("one kid on an ML-DSA-65 and an Ed25519 key", `[`+akp("k", pub)+`,`+okp("k", legacyX)+`]`, "duplicate_kid"),
+
+		refused("not JSON", `{"keys":[`, "set_malformed"),
+		refused("a single JWK rather than a set", current, "set_malformed"),
+		refused("no keys member", `{}`, "set_malformed"),
+		refused("keys is null", `{"keys":null}`, "set_malformed"),
+		refused("null", `null`, "set_malformed"),
+		refused("a key that is not an object", `["`+pub[:8]+`"]`, "set_malformed"),
+		refused("a key with no kid", `[{"kty":"OKP","crv":"Ed25519","x":"`+legacyX+`"}]`, "set_malformed"),
+		refused("a key with an empty kid", `[`+okp("", legacyX)+`]`, "set_malformed"),
+		refused("a key with no kty", `[{"crv":"Ed25519","kid":"old","x":"`+legacyX+`"}]`, "set_malformed"),
+		refused("member names are case-sensitive", `[{"kty":"OKP","crv":"Ed25519","KID":"old","x":"`+legacyX+`"}]`, "set_malformed"),
+		refused("a null member", `[{"kty":"OKP","crv":null,"kid":"old","x":"`+legacyX+`"}]`, "set_malformed"),
+		refused("a member of the wrong type", `[{"kty":"OKP","crv":"Ed25519","kid":7,"x":"`+legacyX+`"}]`, "set_malformed"),
+		refused("a member named twice", `[{"kty":"OKP","crv":"Ed25519","kid":"old","x":"AAAA","x":"`+legacyX+`"}]`, "set_malformed"),
+		refused("keys named twice", `{"keys":[],"keys":[`+legacy+`]}`, "set_malformed"),
+		refused("a malformed key after a good one", `[`+legacy+`,{"kty":"OKP"}]`, "set_malformed"),
+
+		refused("ML-DSA-44", `[{"kty":"AKP","alg":"ML-DSA-44","kid":"k","pub":"`+pub+`"}]`, "key_unsupported"),
+		refused("AKP with no alg", `[{"kty":"AKP","kid":"k","pub":"`+pub+`"}]`, "key_unsupported"),
+		refused("EC P-256", `[{"kty":"EC","crv":"P-256","kid":"k","x":"`+legacyX+`","y":"`+legacyX+`"}]`, "key_unsupported"),
+		refused("OKP X25519", `[{"kty":"OKP","crv":"X25519","kid":"k","x":"`+legacyX+`"}]`, "key_unsupported"),
+		refused("an unsupported key after a good one", `[`+legacy+`,{"kty":"oct","kid":"k","k":"AAAA"}]`, "key_unsupported"),
+
+		refused("ML-DSA-65 key of the wrong length", `[`+akp("k", pub[:len(pub)-4])+`]`, "key_invalid"),
+		refused("Ed25519 key of the wrong length", `[`+okp("k", legacyX+"AAAA")+`]`, "key_invalid"),
+		refused("public key with padding", `[`+okp("k", legacyX+"=")+`]`, "key_invalid"),
+		refused("public key in standard base64", `[`+okp("k", "+"+legacyX[1:])+`]`, "key_invalid"),
+		refused("public key with a line break", `[`+okp("k", legacyX[:20]+`\n`+legacyX[20:])+`]`, "key_invalid"),
+		refused("no public key", `[{"kty":"AKP","alg":"ML-DSA-65","kid":"k"}]`, "key_invalid"),
+	}
+}
+
+func runKeySetVectors(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(vectorDirectory, "keysets.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file vectorFile[keySetCase]
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range file.Cases {
+		t.Run("keysets/"+c.Name, func(t *testing.T) {
+			keys, err := ParseJWKSet([]byte(c.Document))
+			if c.Error != "" {
+				if Class(err) != c.Error || keys != nil {
+					t.Fatalf("got %v (%q), want %s", err, Class(err), c.Error)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+			kids := []string{}
+			for _, key := range keys {
+				kids = append(kids, key.ID())
+			}
+			if strings.Join(kids, ",") != strings.Join(c.Kids, ",") {
+				t.Fatalf("kids %v, want %v", kids, c.Kids)
+			}
+		})
+	}
 }
 
 func encodeVectors(t *testing.T, value any) []byte {
@@ -451,6 +600,13 @@ func TestVectors(t *testing.T) {
 			Keys:        keys.specs,
 			Cases:       buildSign(t, keys),
 		}),
+		"keysets.json": encodeVectors(t, vectorFile[keySetCase]{
+			Library:     "moqom-token",
+			Description: "Loading JWK sets: each case gives a document and either the key IDs it yields, in order, or the error class it is refused with.",
+			Source:      "Generated by go/token/vectors_test.go (MOQOM_WRITE_VECTORS=1) from the keys listed.",
+			Keys:        keys.specs,
+			Cases:       buildKeySets(t, keys),
+		}),
 	}
 	for name, encoded := range files {
 		path := filepath.Join(vectorDirectory, name)
@@ -470,6 +626,7 @@ func TestVectors(t *testing.T) {
 	}
 	runVerifyVectors(t)
 	runSignVectors(t)
+	runKeySetVectors(t)
 }
 
 func readVectors[C any](t *testing.T, name string) (vectorFile[C], map[string]PublicKey, map[string]*Signer) {

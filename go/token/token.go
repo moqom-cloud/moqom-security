@@ -49,6 +49,10 @@ func Class(err error) string {
 		{ErrWrongTenant, "wrong_tenant"},
 		{ErrIncomplete, "incomplete"},
 		{ErrThumbprint, "thumbprint"},
+		{ErrKeySetMalformed, "set_malformed"},
+		{ErrKeyUnsupported, "key_unsupported"},
+		{ErrKeyInvalid, "key_invalid"},
+		{ErrDuplicateKeyID, "duplicate_kid"},
 	} {
 		if errors.Is(err, class.err) {
 			return class.name
@@ -114,6 +118,9 @@ type Confirmation struct {
 // added later is as likely to narrow a grant as to widen one, and a verifier
 // that ignored a narrowing would enforce more than was issued.
 type Grant struct {
+	// Room is the room the token admits the holder to; empty names none. The
+	// package carries it without interpreting it: what a token naming no room
+	// may do is the product's rule.
 	Room string `json:"room,omitempty"`
 	// Publish and Capabilities are bitmasks whose bit positions belong to the
 	// deployment's protocol, not to this package.
@@ -131,11 +138,15 @@ func (c Claims) IssuedAtTime() time.Time { return time.Unix(c.IssuedAt, 0) }
 func (c Claims) ExpiresTime() time.Time  { return time.Unix(c.Expires, 0) }
 
 // ValidThumbprint reports whether thumbprint is an RFC 7638 SHA-256
-// thumbprint: 43 base64url characters decoding to 32 bytes. A token whose
-// `cnf.jkt` is anything else is bound to no key at all, since no proof of
-// possession can match it.
+// thumbprint: 43 characters of canonical unpadded base64url, decoding to 32
+// bytes. A token whose `cnf.jkt` is anything else is bound to no key at all,
+// since no proof of possession can match it, so Sign refuses to mint one and
+// Verify refuses to accept one (ErrThumbprint).
 func ValidThumbprint(thumbprint string) bool {
-	decoded, err := base64.RawURLEncoding.Strict().DecodeString(thumbprint)
+	if len(thumbprint) != 43 {
+		return false
+	}
+	decoded, err := decodeBase64URL(thumbprint)
 	return err == nil && len(decoded) == sha256.Size
 }
 

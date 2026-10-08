@@ -72,52 +72,121 @@ public struct PublicKey: Hashable, Sendable {
         }
     }
 
-    /// Why a JWK set was refused.
-    public struct SetError: Error, Hashable, Sendable, CustomStringConvertible {
-        public let description: String
+    /// Why a JWK set was refused. Each is one of the error classes the key set
+    /// vectors name; see ``vectorClass``.
+    public enum SetError: Error, Hashable, Sendable, CustomStringConvertible {
+        /// Not a JWK set: not JSON, not an array or `{"keys": [...]}`, a key
+        /// that is not an object, a member that is null, of the wrong type or
+        /// named twice, or a key with no `kty` or no `kid`.
+        case malformed(String)
+        /// A key that is not AKP/ML-DSA-65 or OKP/Ed25519.
+        case unsupported(kid: String)
+        /// Key material that is not canonical base64url or not the algorithm's
+        /// length.
+        case invalid(kid: String, reason: String)
+        /// A set naming one `kid` twice. Which of the two a token's `kid` would
+        /// select is the kind of question a verifier must not answer by
+        /// accident.
+        case duplicateKeyID(String)
+
+        public var vectorClass: String {
+            switch self {
+            case .malformed: "set_malformed"
+            case .unsupported: "key_unsupported"
+            case .invalid: "key_invalid"
+            case .duplicateKeyID: "duplicate_kid"
+            }
+        }
+
+        public var description: String {
+            switch self {
+            case let .malformed(why): "not a JWK set: \(why)"
+            case let .unsupported(kid): "key \(kid): only AKP/ML-DSA-65 and OKP/Ed25519 are supported"
+            case let .invalid(kid, reason): "key \(kid): \(reason)"
+            case let .duplicateKeyID(kid): "key ID \(kid) appears twice in the set"
+            }
+        }
     }
 
     /// Read a JWK set, as a bare array or wrapped in `{"keys": [...]}`.
     ///
-    /// Every key must be AKP/ML-DSA-65 or OKP/Ed25519 of the right length;
-    /// anything else is refused rather than skipped, because a set that silently
-    /// lost a key verifies fewer tokens than its author thinks.
+    /// The whole document is read first (``SetError/malformed(_:)``), then each
+    /// key in order: it must be AKP/ML-DSA-65 or OKP/Ed25519
+    /// (``SetError/unsupported(kid:)``), its public key must be canonical
+    /// base64url of the right length (``SetError/invalid(kid:reason:)``), and
+    /// its `kid` must not repeat one before it (``SetError/duplicateKeyID(_:)``).
+    /// A key that fails is refused rather than skipped, because a set that
+    /// silently lost a key verifies fewer tokens than its author thinks.
+    /// Members a key does not need (`use`, `key_ops`) are ignored.
     public static func parseSet(_ document: Data) throws(SetError) -> [PublicKey] {
-        struct JWK: Decodable {
-            let kty: String
-            let crv: String?
-            let alg: String?
-            let kid: String
-            let x: String?
-            let `pub`: String?
-        }
-        struct Wrapped: Decodable { let keys: [JWK] }
-        let decoder = JSONDecoder()
+        guard UniqueMembers.check(document) else { throw .malformed("not JSON, or a member named twice") }
         let jwks: [JWK]
-        if let wrapped = try? decoder.decode(Wrapped.self, from: document) {
-            jwks = wrapped.keys
-        } else if let bare = try? decoder.decode([JWK].self, from: document) {
-            jwks = bare
-        } else {
-            throw SetError(description: "not a JWK set")
+        do {
+            if document.first(where: { !" \t\r\n".utf8.contains($0) }) == UInt8(ascii: "{") {
+                jwks = try JSONDecoder().decode(Wrapped.self, from: document).keys
+            } else {
+                jwks = try JSONDecoder().decode([JWK].self, from: document)
+            }
+        } catch {
+            throw .malformed("not an array of JWKs or {\"keys\": [...]}, or a JWK with a missing, null or mistyped member")
         }
         var keys: [PublicKey] = []
+        var seen: Set<String> = []
         for jwk in jwks {
             let algorithm: Algorithm
-            let field: String?
+            let field: String
+            let name: String
             if jwk.kty == "AKP", jwk.alg == "ML-DSA-65" {
-                (algorithm, field) = (.mlDSA65, jwk.pub)
+                (algorithm, field, name) = (.mlDSA65, jwk.pub, "pub")
             } else if jwk.kty == "OKP", jwk.crv == "Ed25519" {
-                (algorithm, field) = (.ed25519, jwk.x)
+                (algorithm, field, name) = (.ed25519, jwk.x, "x")
             } else {
-                throw SetError(description: "key \(jwk.kid): only AKP/ML-DSA-65 and OKP/Ed25519 are supported")
+                throw .unsupported(kid: jwk.kid)
             }
-            guard let raw = field.flatMap({ Data(base64URL: $0) }), raw.count == algorithm.publicKeyBytes else {
-                throw SetError(description: "key \(jwk.kid): not a \(algorithm.publicKeyBytes)-byte base64url key")
+            guard let raw = Data(base64URL: field) else {
+                throw .invalid(kid: jwk.kid, reason: "\(name) is not base64url")
             }
+            guard raw.count == algorithm.publicKeyBytes else {
+                throw .invalid(kid: jwk.kid, reason: "a \(algorithm.rawValue) public key is \(algorithm.publicKeyBytes) bytes")
+            }
+            guard seen.insert(jwk.kid).inserted else { throw .duplicateKeyID(jwk.kid) }
             keys.append(PublicKey(id: jwk.kid, algorithm: algorithm, rawRepresentation: raw))
         }
         return keys
+    }
+
+    /// One key of a set, with exact member names, a null refused, and `kty`
+    /// and a non-empty `kid` required.
+    private struct JWK: Decodable {
+        let kty, crv, alg, kid, x, `pub`: String
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: Member.self)
+            guard c.contains(Member("kty")) else {
+                throw DecodingError.keyNotFound(Member("kty"), .init(codingPath: c.codingPath, debugDescription: "no kty"))
+            }
+            kty = try c.value("kty", or: "")
+            crv = try c.value("crv", or: "")
+            alg = try c.value("alg", or: "")
+            kid = try c.value("kid", or: "")
+            x = try c.value("x", or: "")
+            self.pub = try c.value("pub", or: "")
+            if kid.isEmpty {
+                throw DecodingError.dataCorrupted(.init(codingPath: c.codingPath, debugDescription: "no kid"))
+            }
+        }
+    }
+
+    private struct Wrapped: Decodable {
+        let keys: [JWK]
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: Member.self)
+            guard c.contains(Member("keys")) else {
+                throw DecodingError.keyNotFound(Member("keys"), .init(codingPath: c.codingPath, debugDescription: "no keys"))
+            }
+            keys = try c.value("keys", or: [])
+        }
     }
 }
 
@@ -138,6 +207,9 @@ public struct Signer: Sendable {
     public init(seed: Data, keyID: String? = nil) throws {
         self.init(privateKey: try MLDSA65.PrivateKey(seedRepresentation: seed, publicKey: nil), keyID: keyID)
     }
+
+    /// The 32-byte FIPS 204 seed, for storing the key.
+    public var seed: Data { privateKey.seedRepresentation }
 
     /// The half a verifier needs.
     public var publicKey: PublicKey {

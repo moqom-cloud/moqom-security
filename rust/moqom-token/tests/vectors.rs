@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
-use moqom_token::{Algorithm, Claims, PublicKey, Signer, Verifier, key_id};
+use moqom_token::{Algorithm, Claims, KeyError, PublicKey, Signer, Verifier, key_id};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -174,4 +174,49 @@ fn a_jwk_set_round_trips() {
     ] {
         assert!(PublicKey::parse_set(refused).is_err(), "{refused}");
     }
+}
+
+#[derive(Deserialize)]
+struct KeySetCase {
+    name: String,
+    document: String,
+    kids: Option<Vec<String>>,
+    error: Option<String>,
+}
+
+#[test]
+fn every_key_set_vector() {
+    let (cases, _, _) = read::<KeySetCase>("keysets.json");
+    assert!(cases.len() > 30);
+    for case in cases {
+        let result = PublicKey::parse_set(&case.document);
+        match (&case.error, &case.kids) {
+            (Some(class), _) => assert_eq!(
+                result.as_ref().map_err(KeyError::class).err(),
+                Some(class.as_str()),
+                "{}: {result:?}",
+                case.name
+            ),
+            (None, Some(kids)) => {
+                let got: Vec<&str> = result
+                    .as_ref()
+                    .unwrap_or_else(|e| panic!("{}: {e}", case.name))
+                    .iter()
+                    .map(|key| key.id.as_str())
+                    .collect();
+                assert_eq!(got, *kids, "{}", case.name);
+            }
+            (None, None) => panic!("{}: neither kids nor an error", case.name),
+        }
+    }
+}
+
+#[test]
+fn a_verifier_looks_up_its_keys() {
+    let signer = Signer::from_seed(&[1; 32]).expect("seed");
+    assert!(Verifier::new("", []).is_empty());
+    let verifier = Verifier::new("", [signer.public_key()]);
+    assert!(!verifier.is_empty());
+    assert_eq!(verifier.key(signer.id()), Some(&signer.public_key()));
+    assert_eq!(verifier.key("other"), None);
 }

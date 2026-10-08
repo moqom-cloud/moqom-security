@@ -10,7 +10,10 @@ use serde::Deserialize;
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 
 use crate::claims::Header;
-use crate::{CLOCK_SKEW, Claims, Error, MAX_LIFETIME, MAX_TOKEN_BYTES, PublicKey, TOKEN_TYPE};
+use crate::{
+    CLOCK_SKEW, Claims, Error, MAX_LIFETIME, MAX_TOKEN_BYTES, PublicKey, TOKEN_TYPE,
+    valid_thumbprint,
+};
 
 /// Checks tokens against a set of keys.
 ///
@@ -61,12 +64,24 @@ impl Verifier {
         self.keys.values()
     }
 
+    /// The key named `id`, if the set has one.
+    #[must_use]
+    pub fn key(&self, id: &str) -> Option<&PublicKey> {
+        self.keys.get(id)
+    }
+
+    /// Whether the verifier holds no key, and so verifies nothing.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
     /// Check `token` at `now` and return its claims.
     ///
     /// The signature is checked before any claim is read: acting on a claim from
     /// an unverified token, even to word an error, is how a parser becomes an
     /// attack surface. Then the claims, in this order: issuer, expiry,
-    /// not-before, lifetime, completeness, tenant.
+    /// not-before, lifetime, completeness, thumbprint, tenant.
     ///
     /// # Errors
     /// The first check that failed.
@@ -142,6 +157,9 @@ impl Verifier {
         if claims.sub.is_empty() || claims.tenant.is_empty() || claims.cnf.jkt.is_empty() {
             return Err(Error::Incomplete);
         }
+        if !valid_thumbprint(&claims.cnf.jkt) {
+            return Err(Error::Thumbprint);
+        }
         if !self.tenant.is_empty() && claims.tenant != self.tenant {
             return Err(Error::WrongTenant);
         }
@@ -182,7 +200,7 @@ fn decode<T: for<'de> Deserialize<'de>>(segment: &[u8]) -> Result<T, Undecodable
 /// keeps the last of a duplicate it does not model and other parsers the first,
 /// so a token with one would mean different things to different verifiers.
 /// Names are compared after unescaping, so `sub` and `s\u0075b` are the same.
-struct UniqueMembers;
+pub(crate) struct UniqueMembers;
 
 impl<'de> Deserialize<'de> for UniqueMembers {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

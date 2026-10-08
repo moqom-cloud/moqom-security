@@ -100,7 +100,7 @@ mod keys;
 mod verify;
 
 pub use claims::{Claims, Confirmation, Grant, valid_thumbprint};
-pub use keys::{Algorithm, PublicKey, Signer, key_id};
+pub use keys::{Algorithm, KeyError, PublicKey, Signer, key_id};
 pub use verify::Verifier;
 
 use std::time::Duration;
@@ -156,7 +156,7 @@ pub enum Error {
     /// Does not name a subject, a tenant and a device.
     #[error("token does not name a complete identity")]
     Incomplete,
-    /// `cnf.jkt` is not an RFC 7638 SHA-256 thumbprint. Signing only.
+    /// `cnf.jkt` is not an RFC 7638 SHA-256 thumbprint.
     #[error("token is not bound to an RFC 7638 SHA-256 thumbprint")]
     Thumbprint,
 }

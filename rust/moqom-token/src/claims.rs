@@ -66,7 +66,9 @@ pub struct Confirmation {
 #[serde(deny_unknown_fields)]
 #[allow(clippy::struct_excessive_bools)] // the claim's shape
 pub struct Grant {
-    /// The room it admits the holder to; empty for none.
+    /// The room it admits the holder to; empty names none. The library carries
+    /// it without interpreting it: what a token naming no room may do is the
+    /// product's rule.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub room: String,
     /// Media kinds the holder may publish, as a bitmask whose bit positions
@@ -95,13 +97,17 @@ const fn is_false(value: &bool) -> bool {
     !*value
 }
 
-/// Whether `thumbprint` is an RFC 7638 SHA-256 thumbprint: base64url decoding
-/// to 32 bytes. A token bound to anything else is bound to no key at all.
+/// Whether `thumbprint` is an RFC 7638 SHA-256 thumbprint: 43 characters of
+/// canonical unpadded base64url, decoding to 32 bytes. A token bound to
+/// anything else is bound to no key at all, since no proof of possession can
+/// match it, so a signer refuses to mint one and a verifier to accept one
+/// ([`Error::Thumbprint`]).
 #[must_use]
 pub fn valid_thumbprint(thumbprint: &str) -> bool {
-    URL_SAFE_NO_PAD
-        .decode(thumbprint)
-        .is_ok_and(|decoded| decoded.len() == 32)
+    thumbprint.len() == 43
+        && URL_SAFE_NO_PAD
+            .decode(thumbprint)
+            .is_ok_and(|decoded| decoded.len() == 32)
 }
 
 #[derive(Serialize, Deserialize, Default)]

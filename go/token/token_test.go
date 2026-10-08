@@ -85,4 +85,24 @@ func TestErrorsCarryTheirClass(t *testing.T) {
 	if Class(errors.New("other")) != "" {
 		t.Error("an unrelated error has a class")
 	}
+	if _, err := NewSigner(seed(1)[:31]); !errors.Is(err, ErrKeyInvalid) || Class(err) != "key_invalid" {
+		t.Errorf("a short seed gave %v", err)
+	}
+	if _, err := NewPublicKey("ES256", "k", nil); Class(err) != "key_unsupported" {
+		t.Errorf("an ES256 key gave %v", err)
+	}
+}
+
+func TestAVerifierLooksUpItsKeys(t *testing.T) {
+	signer, _ := NewSigner(seed(1))
+	if !NewVerifier("").IsEmpty() || NewVerifier("", signer.PublicKey()).IsEmpty() {
+		t.Error("IsEmpty is wrong")
+	}
+	verifier := NewVerifier("", signer.PublicKey())
+	if key, ok := verifier.Key(signer.ID()); !ok || key.ID() != signer.ID() {
+		t.Error("the signer's key is not in the set")
+	}
+	if _, ok := verifier.Key("other"); ok {
+		t.Error("a key that is not in the set was found")
+	}
 }

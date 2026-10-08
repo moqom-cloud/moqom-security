@@ -23,15 +23,18 @@ public struct Verifier: Sendable {
         self.tenant = tenant
     }
 
-    /// Whether the set holds any key at all.
+    /// Whether the verifier holds no key, and so verifies nothing.
     public var isEmpty: Bool { keys.isEmpty }
+
+    /// The key named `id`, if the set has one.
+    public func key(_ id: String) -> PublicKey? { keys[id] }
 
     /// Check `token` at `now` and return its claims.
     ///
     /// The signature is checked before any claim is read: acting on a claim
     /// from an unverified token, even to word an error, is how a parser becomes
     /// an attack surface. Then the claims, in this order: issuer, expiry,
-    /// not-before, lifetime, completeness, tenant.
+    /// not-before, lifetime, completeness, thumbprint, tenant.
     public func verify(_ token: Data, now: Date) throws(TokenError) -> Claims {
         guard !token.isEmpty, token.count <= TokenLimits.maximumTokenBytes else {
             throw .malformed("token length is out of range")
@@ -83,6 +86,7 @@ public struct Verifier: Sendable {
             : claims.expires - claims.issuedAt > limit
         if tooLong { throw .lifetime }
         if claims.subject.isEmpty || claims.tenant.isEmpty || claims.thumbprint.isEmpty { throw .incomplete }
+        if !Claims.isValidThumbprint(claims.thumbprint) { throw .thumbprint }
         if !tenant.isEmpty, claims.tenant != tenant { throw .wrongTenant }
     }
 

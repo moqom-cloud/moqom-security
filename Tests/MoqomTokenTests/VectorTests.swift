@@ -151,4 +151,38 @@ struct VectorTests {
             #expect(throws: PublicKey.SetError.self) { try PublicKey.parseSet(Data(refused.utf8)) }
         }
     }
+
+    @Test("every key set vector")
+    func keySets() throws {
+        let (file, _, _, _) = try read("keysets.json") as (File<KeySetCase>, Data, [String: PublicKey], [String: Signer])
+        #expect(file.cases.count > 30)
+        for c in file.cases {
+            switch Result(catching: { () throws(PublicKey.SetError) in try PublicKey.parseSet(Data(c.document.utf8)) }) {
+            case let .success(keys):
+                #expect(c.error == nil, "\(c.name): accepted, want \(c.error ?? "")")
+                #expect(keys.map(\.id) == c.kids, "\(c.name)")
+            case let .failure(error):
+                #expect(error.vectorClass == c.error, "\(c.name): \(error)")
+            }
+        }
+    }
+
+    @Test("a verifier looks up its keys, and a signer gives back its seed")
+    func lookup() throws {
+        let seed = Data(repeating: 1, count: 32)
+        let signer = try Signer(seed: seed)
+        #expect(signer.seed == seed)
+        #expect(Verifier(keys: []).isEmpty)
+        let verifier = Verifier(keys: [signer.publicKey])
+        #expect(!verifier.isEmpty)
+        #expect(verifier.key(signer.keyID) == signer.publicKey)
+        #expect(verifier.key("other") == nil)
+    }
+}
+
+private struct KeySetCase: Decodable {
+    let name: String
+    let document: String
+    let kids: [String]?
+    let error: String?
 }

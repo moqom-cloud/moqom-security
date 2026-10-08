@@ -315,6 +315,111 @@
         "sub": "ada"
       },
       "error": "thumbprint"
+    },
+    {
+      "name": "thumbprint of 44 characters",
+      "kid": "g-6A_LyvSHI",
+      "claims": {
+        "aud": "acme",
+        "cnf": {
+          "jkt": "MpXqvQAmv7Y3Kk9dHnJpLwRtUvXyZaBcDeFgHiJkLmMA"
+        },
+        "exp": 1800000600,
+        "iat": 1800000000,
+        "iss": "https://api.moqom.cloud",
+        "jti": "vector-1",
+        "moqt": {
+          "cap": 0,
+          "pub": 3,
+          "room": "room-42"
+        },
+        "sub": "ada"
+      },
+      "error": "thumbprint"
+    },
+    {
+      "name": "thumbprint with padding",
+      "kid": "g-6A_LyvSHI",
+      "claims": {
+        "aud": "acme",
+        "cnf": {
+          "jkt": "MpXqvQAmv7Y3Kk9dHnJpLwRtUvXyZaBcDeFgHiJkLmM="
+        },
+        "exp": 1800000600,
+        "iat": 1800000000,
+        "iss": "https://api.moqom.cloud",
+        "jti": "vector-1",
+        "moqt": {
+          "cap": 0,
+          "pub": 3,
+          "room": "room-42"
+        },
+        "sub": "ada"
+      },
+      "error": "thumbprint"
+    },
+    {
+      "name": "thumbprint with non-canonical trailing bits",
+      "kid": "g-6A_LyvSHI",
+      "claims": {
+        "aud": "acme",
+        "cnf": {
+          "jkt": "MpXqvQAmv7Y3Kk9dHnJpLwRtUvXyZaBcDeFgHiJkLmN"
+        },
+        "exp": 1800000600,
+        "iat": 1800000000,
+        "iss": "https://api.moqom.cloud",
+        "jti": "vector-1",
+        "moqt": {
+          "cap": 0,
+          "pub": 3,
+          "room": "room-42"
+        },
+        "sub": "ada"
+      },
+      "error": "thumbprint"
+    },
+    {
+      "name": "thumbprint with a line break",
+      "kid": "g-6A_LyvSHI",
+      "claims": {
+        "aud": "acme",
+        "cnf": {
+          "jkt": "MpXqvQAmv7Y3Kk9dHnJpL\nwRtUvXyZaBcDeFgHiJkLmM"
+        },
+        "exp": 1800000600,
+        "iat": 1800000000,
+        "iss": "https://api.moqom.cloud",
+        "jti": "vector-1",
+        "moqt": {
+          "cap": 0,
+          "pub": 3,
+          "room": "room-42"
+        },
+        "sub": "ada"
+      },
+      "error": "thumbprint"
+    },
+    {
+      "name": "thumbprint that is a device ID",
+      "kid": "g-6A_LyvSHI",
+      "claims": {
+        "aud": "acme",
+        "cnf": {
+          "jkt": "MpXqvQAmv7Y3Kk9d"
+        },
+        "exp": 1800000600,
+        "iat": 1800000000,
+        "iss": "https://api.moqom.cloud",
+        "jti": "vector-1",
+        "moqt": {
+          "cap": 0,
+          "pub": 3,
+          "room": "room-42"
+        },
+        "sub": "ada"
+      },
+      "error": "thumbprint"
     }
   ]
 }
