@@ -12,6 +12,7 @@
 //! refreshes the committer's leaf key.
 
 use aws_lc_rs::constant_time;
+use zeroize::Zeroize;
 
 use crate::codec::{Reader, Writer};
 use crate::error::{Error, Result};
@@ -342,6 +343,13 @@ pub struct Group {
     interim: Vec<u8>,
     encryption_private: Vec<u8>,
     signature_private: Vec<u8>,
+}
+
+impl Drop for Group {
+    fn drop(&mut self) {
+        self.encryption_private.zeroize();
+        self.signature_private.zeroize();
+    }
 }
 
 fn interim(suite: CipherSuite, confirmed: &[u8], tag: &[u8]) -> Vec<u8> {

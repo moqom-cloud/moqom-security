@@ -6,6 +6,8 @@
 //! secret comes from, what the tree hash covers -- is MOQOM's simplification;
 //! see `group.rs`.
 
+use zeroize::Zeroize;
+
 use crate::codec::{PROTOCOL_VERSION, Reader, Writer};
 use crate::error::{Error, Result};
 use crate::suite::CipherSuite;
@@ -73,6 +75,27 @@ pub struct EpochSecrets {
     pub epoch_authenticator: Vec<u8>,
     /// The next epoch's init_secret.
     pub init_secret: Vec<u8>,
+}
+
+impl Drop for EpochSecrets {
+    fn drop(&mut self) {
+        for secret in [
+            &mut self.joiner_secret,
+            &mut self.welcome_secret,
+            &mut self.epoch_secret,
+            &mut self.sender_data_secret,
+            &mut self.encryption_secret,
+            &mut self.exporter_secret,
+            &mut self.external_secret,
+            &mut self.confirmation_key,
+            &mut self.membership_key,
+            &mut self.resumption_psk,
+            &mut self.epoch_authenticator,
+            &mut self.init_secret,
+        ] {
+            secret.zeroize();
+        }
+    }
 }
 
 impl EpochSecrets {

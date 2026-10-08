@@ -13,6 +13,8 @@ use sha3::Shake256;
 use sha3::digest::{ExtendableOutput, Update, XofReader};
 use zeroize::Zeroizing;
 
+use crate::hpke::Secret;
+
 use crate::error::{Error, Result};
 use crate::hpke::{MLKEM768_CIPHERTEXT_LENGTH, MLKEM768_PUBLIC_KEY_LENGTH, MLKEM768_SEED_LENGTH};
 
@@ -63,12 +65,12 @@ impl PrivateKey {
 }
 
 /// The combiner: SHA3-256(ss_M || ss_X || ct_X || pk_X || XWingLabel).
-fn combine(ss_m: &[u8], ss_x: &[u8], ct_x: &[u8], pk_x: &[u8]) -> Vec<u8> {
+fn combine(ss_m: &[u8], ss_x: &[u8], ct_x: &[u8], pk_x: &[u8]) -> Secret {
     let mut hash = digest::Context::new(&digest::SHA3_256);
     for part in [ss_m, ss_x, ct_x, pk_x, LABEL] {
         hash.update(part);
     }
-    hash.finish().as_ref().to_vec()
+    Zeroizing::new(hash.finish().as_ref().to_vec())
 }
 
 pub(crate) fn public_key(seed: &[u8]) -> Result<Vec<u8>> {
@@ -76,7 +78,7 @@ pub(crate) fn public_key(seed: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// The shared secret and the ciphertext ct_M || ct_X.
-pub(crate) fn encapsulate(public: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+pub(crate) fn encapsulate(public: &[u8]) -> Result<(Secret, Vec<u8>)> {
     if public.len() != PUBLIC_KEY_LENGTH {
         return Err(Error::CryptoFailure);
     }
@@ -100,7 +102,7 @@ pub(crate) fn encapsulate(public: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
 
 /// AWS-LC refuses an X25519 share whose output is all zero, as Go does; the
 /// draft does not require the check.
-pub(crate) fn decapsulate(ciphertext: &[u8], seed: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn decapsulate(ciphertext: &[u8], seed: &[u8]) -> Result<Secret> {
     if ciphertext.len() != CIPHERTEXT_LENGTH {
         return Err(Error::DecryptionFailed);
     }
@@ -144,7 +146,7 @@ mod tests {
             let name = v["name"].as_str().unwrap();
             assert_eq!(public_key(&hex(&v, "sk")).unwrap(), hex(&v, "pk"), "{name}");
             assert_eq!(
-                decapsulate(&hex(&v, "ct"), &hex(&v, "sk")).unwrap(),
+                *decapsulate(&hex(&v, "ct"), &hex(&v, "sk")).unwrap(),
                 hex(&v, "ss"),
                 "{name}"
             );
@@ -156,7 +158,7 @@ mod tests {
         for v in published("hpkewg-xwing.json") {
             assert_eq!(public_key(&hex(&v, "skRm")).unwrap(), hex(&v, "pkRm"));
             assert_eq!(
-                decapsulate(&hex(&v, "enc"), &hex(&v, "skRm")).unwrap(),
+                *decapsulate(&hex(&v, "enc"), &hex(&v, "skRm")).unwrap(),
                 hex(&v, "shared_secret")
             );
         }

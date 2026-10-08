@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Elliott Wave LLC
 
+use zeroize::Zeroize;
+
 use crate::codec::{PROTOCOL_VERSION, Reader, Writer};
 use crate::error::{Error, Result};
 use crate::group::Leaf;
@@ -125,6 +127,14 @@ pub struct KeyPackageBundle {
     pub(crate) init_private: Vec<u8>,
     pub(crate) encryption_private: Vec<u8>,
     pub(crate) signature_private: Vec<u8>,
+}
+
+impl Drop for KeyPackageBundle {
+    fn drop(&mut self) {
+        self.init_private.zeroize();
+        self.encryption_private.zeroize();
+        self.signature_private.zeroize();
+    }
 }
 
 impl KeyPackageBundle {

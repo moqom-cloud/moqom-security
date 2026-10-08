@@ -425,6 +425,13 @@ all-`0xff` seeds, distinct seeds giving distinct keys, and trailing or missing
 DER bytes. The vectors check that each seed gives Swift's and Go's public key
 and opens their ciphertexts.
 
+Elsewhere in the crate, HPKE's shared secrets, extracted keys and AEAD keys are
+`Zeroizing`. `EpochSecrets`, `KeyPackageBundle` and `Group` wipe their secrets
+and private keys when dropped. Because of that, the fields of `EpochSecrets`
+can be read or cloned but not moved out. Private keys returned by
+`generate_key_pair` and `generate_signature_key_pair` are plain `Vec<u8>`, so
+the caller has to wipe them.
+
 ## Tests
 
 ```

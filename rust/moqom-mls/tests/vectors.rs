@@ -225,7 +225,7 @@ fn published_key_schedule() {
                 s.exporter(string(x, "label"), &hex(x, "context"), int(x, "length")),
                 hex(x, "secret")
             );
-            init = s.init_secret;
+            init = s.init_secret.clone();
         }
     }
 }
@@ -352,7 +352,7 @@ fn key_schedule() {
                     string(x, "label")
                 );
             }
-            init = s.init_secret;
+            init = s.init_secret.clone();
         }
     }
 }

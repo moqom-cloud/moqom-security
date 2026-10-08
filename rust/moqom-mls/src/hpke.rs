@@ -9,12 +9,16 @@
 //! crypto/hpke and CryptoKit by the vectors.
 
 use aws_lc_rs::{aead, agreement, digest, hkdf, hmac, kem};
+use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
 
 pub(crate) const MLKEM768_PUBLIC_KEY_LENGTH: usize = 1184;
 pub(crate) const MLKEM768_CIPHERTEXT_LENGTH: usize = 1088;
 pub(crate) const MLKEM768_SEED_LENGTH: usize = 64;
+
+/// A shared secret or key, wiped when dropped.
+pub(crate) type Secret = Zeroizing<Vec<u8>>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kem {
@@ -260,13 +264,16 @@ impl Kem {
         }
     }
 
-    fn encapsulate(self, public: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+    fn encapsulate(self, public: &[u8]) -> Result<(Secret, Vec<u8>)> {
         match self {
             Self::MlKem768 => {
                 let key = kem::EncapsulationKey::new(&kem::ML_KEM_768, public)
                     .map_err(|_| Error::CryptoFailure)?;
                 let (enc, shared) = key.encapsulate().map_err(|_| Error::CryptoFailure)?;
-                Ok((shared.as_ref().to_vec(), enc.as_ref().to_vec()))
+                Ok((
+                    Zeroizing::new(shared.as_ref().to_vec()),
+                    enc.as_ref().to_vec(),
+                ))
             }
             Self::XWing => crate::xwing::encapsulate(public),
             Self::X25519 => {
@@ -281,7 +288,7 @@ impl Kem {
                     &ephemeral,
                     agreement::UnparsedPublicKey::new(&agreement::X25519, public),
                     Error::CryptoFailure,
-                    |dh| Ok(dh.to_vec()),
+                    |dh| Ok(Zeroizing::new(dh.to_vec())),
                 )?;
                 let shared = Self::dhkem_shared_secret(&dh, &enc, public)?;
                 Ok((shared, enc))
@@ -289,7 +296,7 @@ impl Kem {
         }
     }
 
-    fn decapsulate(self, enc: &[u8], private: &[u8]) -> Result<Vec<u8>> {
+    fn decapsulate(self, enc: &[u8], private: &[u8]) -> Result<Secret> {
         match self {
             Self::MlKem768 => {
                 let (key, _) =
@@ -297,7 +304,7 @@ impl Kem {
                 let shared = key
                     .decapsulate(enc.into())
                     .map_err(|_| Error::DecryptionFailed)?;
-                Ok(shared.as_ref().to_vec())
+                Ok(Zeroizing::new(shared.as_ref().to_vec()))
             }
             Self::XWing => crate::xwing::decapsulate(enc, private),
             Self::X25519 => {
@@ -312,7 +319,7 @@ impl Kem {
                     &key,
                     agreement::UnparsedPublicKey::new(&agreement::X25519, enc),
                     Error::DecryptionFailed,
-                    |dh| Ok(dh.to_vec()),
+                    |dh| Ok(Zeroizing::new(dh.to_vec())),
                 )?;
                 Self::dhkem_shared_secret(&dh, enc, &public)
             }
@@ -320,9 +327,9 @@ impl Kem {
     }
 
     /// RFC 9180 §4.1's ExtractAndExpand for DHKEM(X25519, HKDF-SHA256).
-    fn dhkem_shared_secret(dh: &[u8], enc: &[u8], public: &[u8]) -> Result<Vec<u8>> {
+    fn dhkem_shared_secret(dh: &[u8], enc: &[u8], public: &[u8]) -> Result<Secret> {
         let suite_id = [b"KEM".as_slice(), &DHKEM_X25519.to_be_bytes()].concat();
-        let prk = labeled_extract(Kdf::Sha256, &suite_id, &[], "eae_prk", dh);
+        let prk = Zeroizing::new(labeled_extract(Kdf::Sha256, &suite_id, &[], "eae_prk", dh));
         labeled_expand(
             Kdf::Sha256,
             &suite_id,
@@ -331,6 +338,7 @@ impl Kem {
             &[enc, public].concat(),
             32,
         )
+        .map(Zeroizing::new)
     }
 }
 
@@ -347,20 +355,20 @@ impl Hpke {
 
     /// RFC 9180 §5.1's KeySchedule in mode_base: the key and base nonce, which
     /// is the first message's nonce.
-    fn key_schedule(self, shared: &[u8], info: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+    fn key_schedule(self, shared: &[u8], info: &[u8]) -> Result<(Secret, Vec<u8>)> {
         let suite_id = self.suite_id();
         let psk_id_hash = labeled_extract(self.kdf, &suite_id, &[], "psk_id_hash", &[]);
         let info_hash = labeled_extract(self.kdf, &suite_id, &[], "info_hash", info);
         let context = [&[0u8][..], &psk_id_hash, &info_hash].concat();
-        let secret = labeled_extract(self.kdf, &suite_id, shared, "secret", &[]);
-        let key = labeled_expand(
+        let secret = Zeroizing::new(labeled_extract(self.kdf, &suite_id, shared, "secret", &[]));
+        let key = Zeroizing::new(labeled_expand(
             self.kdf,
             &suite_id,
             &secret,
             "key",
             &context,
             self.aead.key_length(),
-        )?;
+        )?);
         let nonce = labeled_expand(
             self.kdf,
             &suite_id,
