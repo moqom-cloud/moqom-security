@@ -2,6 +2,11 @@
 name = "moqom-sframe"
 version = "0.1.0"
 description = "SFrame (RFC 9605) for MoQ objects: AES-GCM, sender-owned counters, object metadata bound into the tag, replay window"
+readme = "README.md"
+documentation = "https://docs.rs/moqom-sframe"
+homepage = "https://moqom.dev/security/libraries/sframe/"
+keywords = ["sframe", "moq", "e2ee", "aes-gcm", "rfc9605"]
+categories = ["cryptography", "multimedia", "network-programming"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
