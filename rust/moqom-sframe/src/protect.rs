@@ -85,8 +85,8 @@ impl Sender {
     }
 }
 
-/// What [`Receiver::new`] is usually given. The bitmap is one word, so any
-/// window above 64 behaves as 64.
+/// What [`Receiver::new`] is usually given. Windows above 65536 behave as
+/// 65536.
 pub const DEFAULT_REPLAY_WINDOW: u64 = 1024;
 
 type Resolver = Box<dyn Fn(u64) -> Option<Key> + Send + Sync>;
@@ -241,21 +241,35 @@ impl Receiver {
     }
 }
 
+/// The largest window honoured, so a configuration mistake cannot ask for
+/// gigabytes of bitmap per KID. 8 KiB per KID at the cap.
+pub(crate) const MAX_REPLAY_WINDOW: u64 = 1 << 16;
+
 /// A sliding window of counters already seen.
-#[derive(Clone, Copy, Debug)]
+///
+/// The bitmap is a ring of 64-bit words indexed by counter, with one word more
+/// than the window needs: advancing clears whole words, and the spare word is
+/// what keeps that from clearing a counter still inside the window.
+#[derive(Clone, Debug)]
 pub(crate) struct ReplayWindow {
     size: u64,
     highest: Option<u64>,
-    bitmap: u64,
+    words: Vec<u64>,
 }
 
 impl ReplayWindow {
     pub(crate) fn new(size: u64) -> Self {
+        let size = size.min(MAX_REPLAY_WINDOW);
         Self {
-            size: size.min(64),
+            size,
             highest: None,
-            bitmap: 0,
+            words: vec![0; usize::try_from(size.div_ceil(64)).unwrap_or(0) + 1],
         }
+    }
+
+    fn slot(&self, counter: u64) -> (usize, u64) {
+        let index = (counter / 64) % self.words.len() as u64;
+        (usize::try_from(index).unwrap_or(0), 1 << (counter % 64))
     }
 
     pub(crate) fn accepts(&self, counter: u64) -> bool {
@@ -265,28 +279,51 @@ impl ReplayWindow {
         if counter > highest {
             return true;
         }
-        let age = highest - counter;
-        age < self.size && self.bitmap & (1 << age) == 0
+        if highest - counter >= self.size {
+            return false;
+        }
+        let (word, bit) = self.slot(counter);
+        self.words[word] & bit == 0
     }
 
     pub(crate) fn record(&mut self, counter: u64) {
         match self.highest {
-            None => {
-                self.highest = Some(counter);
-                self.bitmap = 1;
-            }
+            None => self.highest = Some(counter),
             Some(highest) if counter > highest => {
-                let shift = counter - highest;
-                self.bitmap = if shift >= 64 { 0 } else { self.bitmap << shift };
-                self.bitmap |= 1;
+                let length = self.words.len() as u64;
+                if counter / 64 - highest / 64 >= length {
+                    self.words.fill(0);
+                } else {
+                    for block in highest / 64 + 1..=counter / 64 {
+                        self.words[usize::try_from(block % length).unwrap_or(0)] = 0;
+                    }
+                }
                 self.highest = Some(counter);
             }
-            Some(highest) => {
-                let age = highest - counter;
-                if age < 64 {
-                    self.bitmap |= 1 << age;
-                }
-            }
+            Some(highest) if highest - counter >= self.size => return,
+            Some(_) => {}
         }
+        let (word, bit) = self.slot(counter);
+        self.words[word] |= bit;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_REPLAY_WINDOW, ReplayWindow};
+
+    #[test]
+    fn window_across_words() {
+        let mut window = ReplayWindow::new(1024);
+        for counter in (3977..=5000).rev() {
+            assert!(window.accepts(counter), "{counter}");
+            window.record(counter);
+        }
+        assert!((3976..=5000).all(|counter| !window.accepts(counter)));
+        window.record(5063);
+        assert!(window.accepts(5001) && !window.accepts(4040) && !window.accepts(4039));
+        window.record(5000 + 2048);
+        assert!(window.accepts(6100) && !window.accepts(5063));
+        assert_eq!(ReplayWindow::new(u64::MAX).size, MAX_REPLAY_WINDOW);
     }
 }

@@ -187,20 +187,164 @@
           }
         ]
       },
-      "name" : "0004-window-capped-at-64",
+      "name" : "0004-window-1024-edge",
       "replay_window" : 1024,
       "steps" : [
         {
-          "object_hex" : "8809c807ab3b520c4680c099931ef6546362ec8a64954f5490c9f02b326d56",
-          "pt_hex" : "c8cfd6dde4ebf2f900070e15"
+          "object_hex" : "890907d0dae2ae4929909ad4d8e5934149272627290a524858dc7ebcb8ec6b2e",
+          "pt_hex" : "d0d7dee5ecf3fa01080f161d"
         },
         {
-          "object_hex" : "880989a72107baee1dfe350181f2f6c2d4320bb57cfdd2e8431873a2996bba",
-          "pt_hex" : "8990979ea5acb3bac1c8cfd6"
+          "object_hex" : "890903d183ee22e6ca92f5e05d6a48451a4fa6a8e063f3cd78f9802a8ac27bf9",
+          "pt_hex" : "d1d8dfe6edf4fb020910171e"
         },
         {
           "error" : "replay",
-          "object_hex" : "88098869b8615345e7be53c104eb7a8d999182e91654fa3a5bb788a45bd3fa"
+          "object_hex" : "890903d0dcd46e2bc69f13cae667f96932965fd3b651cc992aede32acd3d1fa3"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "890903d183ee22e6ca92f5e05d6a48451a4fa6a8e063f3cd78f9802a8ac27bf9"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-window-1024-duplicates",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "890907d0dae2ae4929909ad4d8e5934149272627290a524858dc7ebcb8ec6b2e",
+          "pt_hex" : "d0d7dee5ecf3fa01080f161d"
+        },
+        {
+          "object_hex" : "890905dca9b08d47f8138aec74f526b8e81db19b80bcfa9374d61191f5fc2adc",
+          "pt_hex" : "dce3eaf1f8ff060d141b2229"
+        },
+        {
+          "object_hex" : "890904277bd6e7dcbd47e5d05bce730a2c39f3c73d5cc179e6dc18021871fd65",
+          "pt_hex" : "272e353c434a51585f666d74"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "890905dca9b08d47f8138aec74f526b8e81db19b80bcfa9374d61191f5fc2adc"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "890904277bd6e7dcbd47e5d05bce730a2c39f3c73d5cc179e6dc18021871fd65"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "890907d0dae2ae4929909ad4d8e5934149272627290a524858dc7ebcb8ec6b2e"
+        },
+        {
+          "object_hex" : "890904282a2a90fda63e1134186a14f86743efe4d238446d3fcfdc8cae502ed6",
+          "pt_hex" : "282f363d444b525960676e75"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-window-1024-far-ahead",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "88090abca65fd8d067b7ace8fd41b13a512c6fef76d5358630766bfd5b28dc",
+          "pt_hex" : "0a11181f262d343b42495057"
+        },
+        {
+          "object_hex" : "8a090f42403e31a1a7e0c25d7cfac64ee07e5b72f97302b8b106f0bf0e831cf989",
+          "pt_hex" : "40474e555c636a71787f868d"
+        },
+        {
+          "object_hex" : "8a090f3e586c7ef48d5d2f41e7460f1c68762dff99cf4d36ee09116c83cf0fddbb",
+          "pt_hex" : "585f666d747b828990979ea5"
+        },
+        {
+          "object_hex" : "8c09012a05f200345d60fb2b7a255cbdb63a5eda2b096bcc0c1f702fe946eb7cccd202",
+          "pt_hex" : "00070e151c232a31383f464d"
+        },
+        {
+          "object_hex" : "8c09012a05ee0181adfe0235109f4c4e522323aa7ddacab9fa9c7eedd6dfd25ddfc315",
+          "pt_hex" : "01080f161d242b323940474e"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8c09012a05ee000343bcc6417253f8dc8dc9895ccb46237008d8ef8aef21d478088b9a"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8a090f42403e31a1a7e0c25d7cfac64ee07e5b72f97302b8b106f0bf0e831cf989"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f",
+      "cipher_suite" : 4,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0004-window-capped-at-65536",
+      "replay_window" : 1000000,
+      "steps" : [
+        {
+          "object_hex" : "8a09030d40944a359bcf74b77884637ca8a0ec39899de0097d3ab7b0dba769a4bc",
+          "pt_hex" : "40474e555c636a71787f868d"
+        },
+        {
+          "object_hex" : "8a09020d417addc4eb6e084683944f431c503735ffefc6f0d64f67c438684d3949",
+          "pt_hex" : "41484f565d646b727980878e"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8a09020d4040132ca91a62bd5f7f347cc428b2438de076ded4ffbb6087c56f35ec"
         }
       ]
     },
@@ -507,20 +651,164 @@
           }
         ]
       },
-      "name" : "0005-window-capped-at-64",
+      "name" : "0005-window-1024-edge",
       "replay_window" : 1024,
       "steps" : [
         {
-          "object_hex" : "8809c890d213ac7d6bdc8c0fd3d622ecdd221213a74c1529ba7f57eda6231c",
-          "pt_hex" : "c8cfd6dde4ebf2f900070e15"
+          "object_hex" : "890907d0e527315375bf01e1b4c5efeed31588a932a3182053435094a38b248c",
+          "pt_hex" : "d0d7dee5ecf3fa01080f161d"
         },
         {
-          "object_hex" : "88098963ec4e5712be896cbc34a668685dceb5a5e7fdff431ba8e15d964d6d",
-          "pt_hex" : "8990979ea5acb3bac1c8cfd6"
+          "object_hex" : "890903d1af05a3deca264569adde10ec1016626e0178d2287071226674ed2b8f",
+          "pt_hex" : "d1d8dfe6edf4fb020910171e"
         },
         {
           "error" : "replay",
-          "object_hex" : "880988082d0d4d10256af4f7b2b265d942945856d9578b493408245eec8aa6"
+          "object_hex" : "890903d0e83c4e55b1a32fa5388605cee9db477daa06d029d7a3f9806ca091f9"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "890903d1af05a3deca264569adde10ec1016626e0178d2287071226674ed2b8f"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-window-1024-duplicates",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "890907d0e527315375bf01e1b4c5efeed31588a932a3182053435094a38b248c",
+          "pt_hex" : "d0d7dee5ecf3fa01080f161d"
+        },
+        {
+          "object_hex" : "890905dc2f4486b8382c97d6adfe6c416b5422716f1d0ccc9c9f04e41cd98b60",
+          "pt_hex" : "dce3eaf1f8ff060d141b2229"
+        },
+        {
+          "object_hex" : "89090427c5ff13e36377fa1bf52cc0539c5b33180aaa505b6827b40ea64a0adc",
+          "pt_hex" : "272e353c434a51585f666d74"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "890905dc2f4486b8382c97d6adfe6c416b5422716f1d0ccc9c9f04e41cd98b60"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "89090427c5ff13e36377fa1bf52cc0539c5b33180aaa505b6827b40ea64a0adc"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "890907d0e527315375bf01e1b4c5efeed31588a932a3182053435094a38b248c"
+        },
+        {
+          "object_hex" : "890904289796673b50c4f1e39f2a4f24cf69b4d6bc64ad378de21017b94e52f1",
+          "pt_hex" : "282f363d444b525960676e75"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-window-1024-far-ahead",
+      "replay_window" : 1024,
+      "steps" : [
+        {
+          "object_hex" : "88090aff1b2e094ba0df2ae4c7fddffe12ab90ce4afab67553aed47bf76345",
+          "pt_hex" : "0a11181f262d343b42495057"
+        },
+        {
+          "object_hex" : "8a090f424047ed518b69a4e2f0a8d26614a3f86baf9b45d6fc49691584ef3d5c13",
+          "pt_hex" : "40474e555c636a71787f868d"
+        },
+        {
+          "object_hex" : "8a090f3e58346e5c7e71a06f00d95ef03fce674f356ab601b766ba2b1ebfd450c0",
+          "pt_hex" : "585f666d747b828990979ea5"
+        },
+        {
+          "object_hex" : "8c09012a05f200b00f35531303133aeb372d70b98cc02d691ebffd47acb124979fbbe3",
+          "pt_hex" : "00070e151c232a31383f464d"
+        },
+        {
+          "object_hex" : "8c09012a05ee01c596c3d880e43e7da6d007547be677ab6754b3a1d18e6f3ebc3caf12",
+          "pt_hex" : "01080f161d242b323940474e"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8c09012a05ee004800ad62d21d774dbddf8be99391fda70462420f0cad2f0476ab7747"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8a090f424047ed518b69a4e2f0a8d26614a3f86baf9b45d6fc49691584ef3d5c13"
+        }
+      ]
+    },
+    {
+      "base_key_hex" : "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "cipher_suite" : 5,
+      "kid" : 9,
+      "metadata" : {
+        "group" : 5,
+        "object" : 2,
+        "priority" : 64,
+        "properties" : [
+          {
+            "integer" : 1000000,
+            "type" : 120
+          },
+          {
+            "integer" : 1,
+            "type" : 122
+          }
+        ]
+      },
+      "name" : "0005-window-capped-at-65536",
+      "replay_window" : 1000000,
+      "steps" : [
+        {
+          "object_hex" : "8a09030d40d09cced5ac8c574daef990e116d4160e92706999ef9933844f6122b8",
+          "pt_hex" : "40474e555c636a71787f868d"
+        },
+        {
+          "object_hex" : "8a09020d41ab9443737ff5895a34b6d3ae5450161aaed612fbe56abe52fcd09d99",
+          "pt_hex" : "41484f565d646b727980878e"
+        },
+        {
+          "error" : "replay",
+          "object_hex" : "8a09020d408ca7e1b4eb1892bfeeba9376de0acb046901db13b91a68527bb05e11"
         }
       ]
     },

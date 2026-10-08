@@ -100,6 +100,32 @@ func TestUnknownKeyAndResolver(t *testing.T) {
 	}
 }
 
+func TestReplayWindowAcrossWords(t *testing.T) {
+	w := newReplayWindow(1024)
+	for counter := uint64(5000); counter >= 3977; counter-- {
+		if !w.accepts(counter) {
+			t.Fatalf("refused fresh %d", counter)
+		}
+		w.record(counter)
+	}
+	for counter := uint64(3976); counter <= 5000; counter++ {
+		if w.accepts(counter) {
+			t.Fatalf("accepted %d again", counter)
+		}
+	}
+	w.record(5063)
+	if !w.accepts(5001) || w.accepts(4040) || w.accepts(4039) {
+		t.Fatal("window after a short advance")
+	}
+	w.record(5000 + 2048)
+	if !w.accepts(6100) || w.accepts(5063) {
+		t.Fatal("window after a long advance")
+	}
+	if newReplayWindow(^uint64(0)).size != maxReplayWindow {
+		t.Fatal("window not capped")
+	}
+}
+
 func TestUnsupportedSuite(t *testing.T) {
 	if _, err := NewContext(0x0001, 1, []byte{1}); !errors.Is(err, ErrUnsupportedSuite) {
 		t.Fatal(err)

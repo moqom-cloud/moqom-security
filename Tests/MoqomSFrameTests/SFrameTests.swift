@@ -168,7 +168,7 @@ struct SFrameProtectionTests {
 struct ReplayWindowTests {
     @Test("anything ahead of the window is new")
     func forwardIsAlwaysNew() {
-        var window = ReplayWindow(size: 64)
+        let window = ReplayWindow(size: 64)
         #expect(window.accepts(0))
         window.record(0)
         #expect(!window.accepts(0))
@@ -181,9 +181,35 @@ struct ReplayWindowTests {
         // The window is what bounds how much reordering is tolerated. Past it,
         // there is no way to tell a very late frame from a replayed one, and
         // the safe answer is to refuse.
-        var window = ReplayWindow(size: 8)
+        let window = ReplayWindow(size: 8)
         window.record(100)
         #expect(window.accepts(95))
         #expect(!window.accepts(90))
+    }
+
+    @Test("every counter in a 1024 window is tracked across word boundaries")
+    func fullWindow() {
+        let window = ReplayWindow(size: 1024)
+        for counter in stride(from: UInt64(5000), through: 3977, by: -1) {
+            #expect(window.accepts(counter))
+            window.record(counter)
+        }
+        for counter in UInt64(3977) ... 5000 {
+            #expect(!window.accepts(counter))
+        }
+        #expect(!window.accepts(3976))
+        window.record(5063)
+        #expect(window.accepts(5001))
+        #expect(!window.accepts(4040))
+        #expect(!window.accepts(4039))
+        window.record(5000 + 2048)
+        #expect(window.accepts(6100))
+        #expect(!window.accepts(5063))
+    }
+
+    @Test("a window above the maximum behaves as the maximum")
+    func capped() {
+        let window = ReplayWindow(size: .max)
+        #expect(window.size == ReplayWindow.maximumSize)
     }
 }

@@ -401,7 +401,7 @@ public final class SFrameReceiver: @unchecked Sendable {
     /// Reordering is normal on a network, so a strict "must increase" rule
     /// would discard perfectly good frames. The window bounds how much
     /// out-of-order delivery is tolerated before a frame is assumed to be a
-    /// replay. The bitmap is one word, so anything above 64 behaves as 64.
+    /// replay. Windows above 65536 behave as 65536.
     public let replayWindow: UInt64
 
     private let lock = NSLock()
@@ -469,7 +469,8 @@ public final class SFrameReceiver: @unchecked Sendable {
             lock.unlock()
             throw SFrameError.unknownKey(header.keyID)
         }
-        var window = seen[header.keyID] ?? ReplayWindow(size: replayWindow)
+        let window = seen[header.keyID] ?? ReplayWindow(size: replayWindow)
+        seen[header.keyID] = window
         guard window.accepts(header.counter) else {
             lock.unlock()
             throw SFrameError.replay(counter: header.counter)
@@ -483,8 +484,9 @@ public final class SFrameReceiver: @unchecked Sendable {
         // that failed to authenticate would let anyone with a forged frame
         // knock out the real one behind it.
         lock.lock()
-        window.record(header.counter)
-        seen[header.keyID] = window
+        if seen[header.keyID] === window {
+            window.record(header.counter)
+        }
         lock.unlock()
 
         return plaintext
@@ -492,38 +494,58 @@ public final class SFrameReceiver: @unchecked Sendable {
 }
 
 /// A sliding window of counters already seen.
-struct ReplayWindow: Sendable {
-    private let size: UInt64
+///
+/// The bitmap is a ring of 64-bit words indexed by counter, with one word more
+/// than the window needs: advancing clears whole words, and the spare word is
+/// what keeps that from clearing a counter still inside the window.
+///
+/// Only touched under ``SFrameReceiver``'s lock.
+final class ReplayWindow: @unchecked Sendable {
+    /// The largest window honoured, so a configuration mistake cannot ask for
+    /// gigabytes of bitmap per KID. 8 KiB per KID at the cap.
+    static let maximumSize: UInt64 = 1 << 16
+
+    let size: UInt64
     private var highest: UInt64?
-    private var bitmap: UInt64 = 0
+    private var words: [UInt64]
 
     init(size: UInt64) {
-        self.size = min(size, 64)
+        self.size = min(size, Self.maximumSize)
+        words = Array(repeating: 0, count: Int((self.size + 63) / 64) + 1)
+    }
+
+    private func slot(_ counter: UInt64) -> (word: Int, bit: UInt64) {
+        (Int((counter / 64) % UInt64(words.count)), 1 << (counter % 64))
     }
 
     /// Whether a counter is new enough and has not been seen.
     func accepts(_ counter: UInt64) -> Bool {
         guard let highest else { return true }
         if counter > highest { return true }
-        let age = highest - counter
-        guard age < size else { return false }
-        return bitmap & (1 << age) == 0
+        guard highest - counter < size else { return false }
+        let (word, bit) = slot(counter)
+        return words[word] & bit == 0
     }
 
-    mutating func record(_ counter: UInt64) {
-        guard let current = highest else {
-            highest = counter
-            bitmap = 1
-            return
-        }
-        if counter > current {
-            let shift = counter - current
-            bitmap = shift >= 64 ? 0 : bitmap << shift
-            bitmap |= 1
-            highest = counter
+    func record(_ counter: UInt64) {
+        if let current = highest {
+            if counter > current {
+                let advanced = counter / 64 - current / 64
+                if advanced >= UInt64(words.count) {
+                    for index in words.indices { words[index] = 0 }
+                } else if advanced > 0 {
+                    for block in current / 64 + 1 ... counter / 64 {
+                        words[Int(block % UInt64(words.count))] = 0
+                    }
+                }
+                highest = counter
+            } else if current - counter >= size {
+                return
+            }
         } else {
-            let age = current - counter
-            if age < 64 { bitmap |= (1 << age) }
+            highest = counter
         }
+        let (word, bit) = slot(counter)
+        words[word] |= bit
     }
 }

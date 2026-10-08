@@ -39,12 +39,14 @@ All three pass every case in [`vectors/sframe`](../vectors/sframe).
   object's canonical metadata (below). This follows the shape of
   `draft-ietf-moq-secure-objects`.
 - **Replay window.** For each KID, the receiver tracks the highest counter it
-  has seen plus a 64-bit bitmap of the counters below it:
-  - A counter above the highest is accepted.
+  has seen plus a bitmap of the window of counters at and below it:
+  - A counter above the highest is accepted, however far ahead.
   - A counter below the highest is accepted only if it is less than the window
-    behind and has not been seen.
-  - The bitmap is one word, so any window size above 64 behaves as 64. The
-    default request is 1024, which in effect is 64.
+    behind and has not been seen. With the default window of 1024, the highest
+    minus 1023 is accepted and the highest minus 1024 is refused.
+  - The bitmap is a ring of 64-bit words, one more than the window needs (17
+    words, 136 bytes, for 1024). Windows above 65536 behave as 65536, which is
+    8 KiB per KID.
   - A counter is recorded only after the object authenticates, so a forged
     object cannot use up the counter of the real one behind it.
   - Adding a key resets that key's window.
@@ -186,7 +188,7 @@ then header, then key, then replay window, then tag.
 | `nonce.json` | 40 | Key, salt, nonce and header for both suites and two KIDs, at counters from 0 to 2^64 − 1 |
 | `seal-open.json` | 10 (32 objects) | Context seal must reproduce each object byte for byte, and open must return each payload. Covers empty payloads, the maximum KID, and a counter crossing into the extended form |
 | `open.json` | 50 | Per suite: every metadata field changed (group, object, priority, each property, a property added, removed or retyped) gives `authentication_failure`. Also covers ciphertext, tag and counter changes, a changed KID (`unknown_key`), truncation and malformed headers, objects sealed under the other suite or another base key, invalid metadata, a non-minimal header (which opens), and reordered properties (which open) |
-| `replay.json` | 16 (64 steps) | Duplicates, reordering, the edges of windows of 64 and 8, the cap at 64, a forward jump, a forgery that does not use up its counter, and the top of the counter space |
+| `replay.json` | 22 (100 steps) | Duplicates, reordering, the edges of windows of 1024, 64 and 8, duplicates across a 1024 window, jumps far ahead, the cap at 65536, a forward jump, a forgery that does not use up its counter, and the top of the counter space |
 
 `rfc9605.json` comes from `extract-rfc9605.py`, which reads the RFC text. Its
 output matches the working group's `test-vectors.json` for every RFC case. The

@@ -291,8 +291,8 @@ func (s *Sender) Protect(plaintext, metadata []byte) ([]byte, error) {
 	return key.seal(header, plaintext, issued, aad), nil
 }
 
-// DefaultReplayWindow is what NewReceiver is usually given. The bitmap is one
-// word, so any window above 64 behaves as 64.
+// DefaultReplayWindow is what NewReceiver is usually given. Windows above
+// 65536 behave as 65536.
 const DefaultReplayWindow = 1024
 
 // Receiver decrypts, holding keys for any number of KIDs and rejecting replays.
@@ -400,38 +400,56 @@ func (r *Receiver) Unprotect(data, metadata []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
+// maxReplayWindow is the largest window honoured, so a configuration mistake
+// cannot ask for gigabytes of bitmap per KID. 8 KiB per KID at the cap.
+const maxReplayWindow = 1 << 16
+
+// replayWindow is a ring of 64-bit words indexed by counter, with one word
+// more than the window needs: advancing clears whole words, and the spare word
+// is what keeps that from clearing a counter still inside the window.
 type replayWindow struct {
 	size    uint64
 	highest uint64
 	any     bool
-	bitmap  uint64
+	words   []uint64
 }
 
-func newReplayWindow(size uint64) *replayWindow { return &replayWindow{size: min(size, 64)} }
+func newReplayWindow(size uint64) *replayWindow {
+	size = min(size, maxReplayWindow)
+	return &replayWindow{size: size, words: make([]uint64, (size+63)/64+1)}
+}
+
+func (w *replayWindow) slot(counter uint64) (int, uint64) {
+	return int((counter / 64) % uint64(len(w.words))), 1 << (counter % 64)
+}
 
 func (w *replayWindow) accepts(counter uint64) bool {
 	if !w.any || counter > w.highest {
 		return true
 	}
-	age := w.highest - counter
-	return age < w.size && w.bitmap&(1<<age) == 0
+	if w.highest-counter >= w.size {
+		return false
+	}
+	word, bit := w.slot(counter)
+	return w.words[word]&bit == 0
 }
 
 func (w *replayWindow) record(counter uint64) {
 	switch {
 	case !w.any:
-		w.highest, w.bitmap, w.any = counter, 1, true
+		w.highest, w.any = counter, true
 	case counter > w.highest:
-		if shift := counter - w.highest; shift >= 64 {
-			w.bitmap = 0
+		if advanced := counter/64 - w.highest/64; advanced >= uint64(len(w.words)) {
+			clear(w.words)
 		} else {
-			w.bitmap <<= shift
+			for block := w.highest/64 + 1; block <= counter/64; block++ {
+				w.words[block%uint64(len(w.words))] = 0
+			}
 		}
-		w.bitmap |= 1
 		w.highest = counter
-	default:
-		if age := w.highest - counter; age < 64 {
-			w.bitmap |= 1 << age
-		}
+	case w.highest-counter >= w.size:
+		return
 	}
+	word, bit := w.slot(counter)
+	w.words[word] |= bit
 }

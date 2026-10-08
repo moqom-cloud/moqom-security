@@ -300,8 +300,20 @@ enum SFrameVectorGenerator {
             ),
             ("window-64-edge", 64, [(.open(100), nil), (.open(37), nil), (.open(36), "replay"), (.open(37), "replay")]),
             ("window-8-edge", 8, [(.open(100), nil), (.open(93), nil), (.open(92), "replay")]),
-            // The bitmap is one word, so a requested window of 1024 accepts 64.
-            ("window-capped-at-64", 1024, [(.open(200), nil), (.open(137), nil), (.open(136), "replay")]),
+            ("window-1024-edge", 1024, [(.open(2000), nil), (.open(977), nil), (.open(976), "replay"), (.open(977), "replay")]),
+            (
+                "window-1024-duplicates",
+                1024,
+                [(.open(2000), nil), (.open(1500), nil), (.open(1063), nil), (.open(1500), "replay"),
+                 (.open(1063), "replay"), (.open(2000), "replay"), (.open(1064), nil)]
+            ),
+            (
+                "window-1024-far-ahead",
+                1024,
+                [(.open(10), nil), (.open(1_000_000), nil), (.open(999_000), nil), (.open(5_000_000_000), nil),
+                 (.open(4_999_998_977), nil), (.open(4_999_998_976), "replay"), (.open(1_000_000), "replay")]
+            ),
+            ("window-capped-at-65536", 1_000_000, [(.open(200_000), nil), (.open(134_465), nil), (.open(134_464), "replay")]),
             (
                 "jump-forward-clears-history",
                 1024,
