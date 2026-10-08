@@ -1,7 +1,14 @@
 [package]
 name = "moqom-mls"
 version = "0.1.0"
-description = "The MOQOM subset of MLS (RFC 9420): post-quantum key packages, Welcome, commits, exporter and audience envelopes"
+description = "The MOQOM subset of MLS (RFC 9420): ML-KEM-768 and ML-DSA-65 key packages, Welcome, commits, SFrame exporter and audience envelopes"
+readme = "README.md"
+keywords = ["mls", "rfc9420", "post-quantum", "ml-kem", "e2ee"]
+categories = ["cryptography", "network-programming"]
+documentation = "https://docs.rs/moqom-mls"
+homepage = "https://moqom.dev/security/libraries/mls/"
+# The shared vectors live at the repository root, outside the package.
+exclude = ["tests/vectors.rs", "tests/generate.rs"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
