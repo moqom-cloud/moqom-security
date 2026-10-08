@@ -54,7 +54,7 @@ struct ProverTests {
         let proof = try prover.prove(
             token: Data("t".utf8), certificateHash: Self.certificate, nonce: "n", issuedAt: Self.now
         )
-        let checker = Checker(store: MemoryNonceStore(), algorithms: [.mlDSA65])
+        let checker = try Checker(store: MemoryNonceStore(), algorithms: [.mlDSA65])
         #expect(throws: ProofError.unsupported) {
             try checker.check(
                 proof, token: Data("t".utf8), certificateHash: Self.certificate,
@@ -74,7 +74,7 @@ struct ProverTests {
 
     @Test("the store sweeps expired nonces and fails closed")
     func store() throws {
-        let store = MemoryNonceStore(capacity: 2)
+        let store = try MemoryNonceStore(capacity: 2)
         try store.spend("a", until: Self.now, now: Self.now)
         try store.spend("b", until: Self.now, now: Self.now)
         let later = Self.now.addingTimeInterval(1)
@@ -90,6 +90,55 @@ struct ProverTests {
         #expect(throws: ProofError.self) {
             try prover.prove(token: Data(), certificateHash: Self.certificate, nonce: "")
         }
+    }
+
+    @Test("settings that cannot work are refused at construction")
+    func configuration() throws {
+        func refused(_ make: () throws -> Void) {
+            do {
+                try make()
+                Issue.record("accepted")
+            } catch {
+                #expect((error as? ProofError)?.errorClass == "configuration", "\(error)")
+            }
+        }
+        refused { _ = try MemoryNonceStore(capacity: 0) }
+        refused { _ = try MemoryNonceStore(capacity: -1) }
+        refused { _ = try Checker(store: MemoryNonceStore(), window: 0) }
+        refused { _ = try Checker(store: MemoryNonceStore(), window: -1) }
+        refused { _ = try Checker(store: MemoryNonceStore(), window: .nan) }
+        refused { _ = try Checker(store: MemoryNonceStore(), window: .infinity) }
+        refused { _ = try Checker(store: MemoryNonceStore(), algorithms: []) }
+
+        let checker = Checker(store: MemoryNonceStore())
+        #expect(checker.algorithms == Set(ProofAlgorithm.allCases))
+        #expect(checker.window == Checker.defaultWindow)
+        #expect(!checker.requireCertificate)
+        #expect(MemoryNonceStore().capacity == MemoryNonceStore.defaultCapacity)
+    }
+
+    /// A caller that passes an `until` earlier than the end of the proof's
+    /// window must not get the proof accepted twice once the store sweeps.
+    @Test("a short until cannot reopen replay")
+    func shortUntil() throws {
+        let prover = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        let store = try MemoryNonceStore(capacity: 2)
+        let checker = Checker(store: store)
+        let token = Data("a.token".utf8)
+        let proof = try prover.prove(
+            token: token, certificateHash: Self.certificate, nonce: Prover.nonce(), issuedAt: Self.now
+        )
+        func check(at time: Date) throws(ProofError) {
+            try checker.check(
+                proof, token: token, certificateHash: Self.certificate,
+                thumbprint: prover.thumbprint, now: time, until: time
+            )
+        }
+        try check(at: Self.now)
+        // Fill the store so that the next spend sweeps whatever has expired.
+        try store.spend("filler", until: Self.now, now: Self.now)
+        #expect(throws: ProofError.replayed) { try check(at: Self.now.addingTimeInterval(Checker.defaultWindow)) }
+        #expect(store.remembered == 1)
     }
 
     /// Skipped where there is no enclave: a simulator, or a Mac without one.

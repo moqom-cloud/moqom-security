@@ -20,6 +20,10 @@ var (
 	ErrOverloaded       = errors.New("nonce store is full")
 	// ErrSigning wraps whatever the key returned when it refused to sign.
 	ErrSigning = errors.New("signing the proof failed")
+	// ErrConfiguration is a checker or store built with settings that cannot
+	// work: no store, no algorithms, or a window or capacity that is not
+	// positive.
+	ErrConfiguration = errors.New("proof checker or nonce store is misconfigured")
 )
 
 var classes = []struct {
@@ -37,6 +41,7 @@ var classes = []struct {
 	{ErrReplayed, "replayed"},
 	{ErrOverloaded, "overloaded"},
 	{ErrSigning, "signing"},
+	{ErrConfiguration, "configuration"},
 }
 
 // Class is the vector error class of err, or "" for nil or an error this

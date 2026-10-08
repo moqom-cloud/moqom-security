@@ -124,7 +124,7 @@
 //! let proof = older.prove(token, relay.as_ref(), &nonce()?, now)?;
 //!
 //! let both = Checker::new(MemoryNonceStore::default());
-//! let strict = Checker::new(MemoryNonceStore::default()).with_algorithms(&[Algorithm::MlDsa65]);
+//! let strict = Checker::new(MemoryNonceStore::default()).with_algorithms(&[Algorithm::MlDsa65])?;
 //! let thumbprint = older.thumbprint();
 //! assert_eq!(both.check(&proof, token, Some(relay.as_ref()), thumbprint, now, expiry), Ok(()));
 //! assert_eq!(
@@ -173,6 +173,7 @@
 
 mod checker;
 mod error;
+mod json;
 mod jwk;
 mod prover;
 mod store;

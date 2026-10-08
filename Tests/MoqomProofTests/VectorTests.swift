@@ -100,7 +100,7 @@ struct VectorTests {
             for nonce in vector.spent ?? [] {
                 try store.spend(nonce, until: until, now: now)
             }
-            let checker = Checker(
+            let checker = try Checker(
                 store: store,
                 window: try #require(file.window_seconds),
                 requireCertificate: vector.require_certificate ?? false

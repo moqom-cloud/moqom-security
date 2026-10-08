@@ -15,7 +15,9 @@ use crate::Error;
 pub trait NonceStore: Send + Sync {
     /// Record `nonce` as spent until `until`.
     ///
-    /// Called only for a proof that passed every other check.
+    /// Called only for a proof that passed every other check, with `until` no
+    /// earlier than one second past the end of that proof's window. Must check
+    /// and record the nonce as one step.
     ///
     /// # Errors
     /// [`Error::Replayed`] if it already is; [`Error::Overloaded`] if the store
@@ -29,7 +31,7 @@ impl<S: NonceStore + ?Sized> NonceStore for std::sync::Arc<S> {
     }
 }
 
-/// How many unexpired nonces a [`MemoryNonceStore`] holds by default: one per
+/// How many unexpired nonces [`MemoryNonceStore::default`] holds: one per
 /// session in a token lifetime, far past what one relay serves, and under ten
 /// megabytes.
 pub const DEFAULT_CAPACITY: usize = 100_000;
@@ -47,19 +49,34 @@ pub struct MemoryNonceStore {
 }
 
 impl Default for MemoryNonceStore {
+    /// A store holding up to [`DEFAULT_CAPACITY`] unexpired nonces.
     fn default() -> Self {
-        Self::new(DEFAULT_CAPACITY)
+        Self {
+            capacity: DEFAULT_CAPACITY,
+            spent: Mutex::new(HashMap::new()),
+        }
     }
 }
 
 impl MemoryNonceStore {
     /// A store holding up to `capacity` unexpired nonces.
-    #[must_use]
-    pub fn new(capacity: usize) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// [`Error::Configuration`] if `capacity` is zero.
+    pub fn new(capacity: usize) -> Result<Self, Error> {
+        if capacity == 0 {
+            return Err(Error::Configuration("capacity is not positive"));
+        }
+        Ok(Self {
             capacity,
             spent: Mutex::new(HashMap::new()),
-        }
+        })
+    }
+
+    /// How many unexpired nonces the store holds before refusing.
+    #[must_use]
+    pub const fn capacity(&self) -> usize {
+        self.capacity
     }
 
     /// How many nonces are held, for tests and metrics.

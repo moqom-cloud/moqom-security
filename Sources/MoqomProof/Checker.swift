@@ -10,74 +10,94 @@ public struct Checker: Sendable {
     /// ML-DSA-65 proof, key included, is about 8 KB.
     public static let maximumProofBytes = 16 * 1024
 
-    /// How far a proof's `iat` may be from the checker's clock, either way.
+    /// How far a proof's `iat` may be from the checker's clock, either way,
+    /// unless the checker is made with another `window`.
     public static let defaultWindow: TimeInterval = 300
 
     public let store: any NonceStore
-    public var algorithms: Set<ProofAlgorithm>
-    public var window: TimeInterval
+    public let algorithms: Set<ProofAlgorithm>
+    public let window: TimeInterval
     /// Refuse every proof when ``check(_:token:certificateHash:thumbprint:now:until:)``
     /// is given no certificate, rather than accepting only proofs that name none.
-    public var requireCertificate: Bool
+    public let requireCertificate: Bool
 
+    /// A checker accepting every ``ProofAlgorithm`` within ``defaultWindow``,
+    /// spending nonces in `store`.
+    public init(store: any NonceStore) {
+        self.store = store
+        algorithms = Set(ProofAlgorithm.allCases)
+        window = Self.defaultWindow
+        requireCertificate = false
+    }
+
+    /// A checker with settings other than the defaults.
+    ///
+    /// - Throws: ``ProofError/configuration(_:)`` if `algorithms` is empty or
+    ///   `window` is not a positive number of seconds.
     public init(
         store: any NonceStore,
         algorithms: Set<ProofAlgorithm> = Set(ProofAlgorithm.allCases),
         window: TimeInterval = Checker.defaultWindow,
         requireCertificate: Bool = false
-    ) {
+    ) throws(ProofError) {
+        guard !algorithms.isEmpty else { throw .configuration("a checker must accept at least one algorithm") }
+        guard window.isFinite, window > 0 else { throw .configuration("window \(window) is not positive") }
         self.store = store
         self.algorithms = algorithms
         self.window = window
         self.requireCertificate = requireCertificate
     }
 
-    private struct Header: Decodable {
+    private struct Header {
         var alg = ""
         var typ = ""
         var jwk: ProofJWK?
         var privateMember: String?
 
-        private enum Keys: String, CodingKey { case alg, typ, jwk }
-        private struct Member: CodingKey {
-            var stringValue: String
-            var intValue: Int? { nil }
-            init(stringValue: String) { self.stringValue = stringValue }
-            init?(intValue: Int) { nil }
-        }
-
-        init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: Keys.self)
-            alg = try container.decodeIfPresent(String.self, forKey: .alg) ?? ""
-            typ = try container.decodeIfPresent(String.self, forKey: .typ) ?? ""
-            jwk = try container.decodeIfPresent(ProofJWK.self, forKey: .jwk)
-            if jwk != nil {
-                privateMember = try container.nestedContainer(keyedBy: Member.self, forKey: .jwk).allKeys
-                    .map(\.stringValue).first(where: ProofJWK.privateMembers.contains)
+        /// `nil` unless `json` is one object whose known members have their
+        /// types; the key's members are typed here too, whatever the `alg`.
+        init?(_ json: Data) {
+            guard let object = StrictJSON(json) else { return nil }
+            do {
+                alg = try object.string("alg") ?? ""
+                typ = try object.string("typ") ?? ""
+                if let key = try object.object("jwk") {
+                    jwk = try ProofJWK(
+                        kty: key.string("kty") ?? "", alg: key.string("alg"), pub: key.string("pub"),
+                        crv: key.string("crv"), x: key.string("x"), y: key.string("y")
+                    )
+                    privateMember = key.names.sorted().first(where: ProofJWK.privateMembers.contains)
+                }
+            } catch {
+                return nil
             }
         }
     }
 
-    private struct Claims: Decodable {
+    private struct Claims {
         var ath = ""
         var iat: Int64?
         var jti = ""
         var rel = ""
 
-        private enum Keys: String, CodingKey { case ath, iat, jti, rel }
-        init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: Keys.self)
-            ath = try container.decodeIfPresent(String.self, forKey: .ath) ?? ""
-            iat = try container.decodeIfPresent(Int64.self, forKey: .iat)
-            jti = try container.decodeIfPresent(String.self, forKey: .jti) ?? ""
-            rel = try container.decodeIfPresent(String.self, forKey: .rel) ?? ""
+        init?(_ json: Data) {
+            guard let object = StrictJSON(json) else { return nil }
+            do {
+                ath = try object.string("ath") ?? ""
+                iat = try object.integer("iat")
+                jti = try object.string("jti") ?? ""
+                rel = try object.string("rel") ?? ""
+            } catch {
+                return nil
+            }
         }
     }
 
     /// Check that `proof` was signed by the key whose thumbprint is
     /// `thumbprint` (the token's `cnf.jkt`), over `token`, for the certificate
     /// whose SHA-256 is `certificateHash`, at a time within the window of
-    /// `now`, and spend its nonce until `until` (normally the token's expiry).
+    /// `now`, and spend its nonce until `until` (normally the token's expiry),
+    /// or until one second past the end of the proof's window if that is later.
     ///
     /// `certificateHash` is `nil` (or empty) only where the checker has no
     /// certificate of its own. The proof must then name no certificate either,
@@ -100,7 +120,7 @@ public struct Checker: Sendable {
         }
         let (headerSegment, claimsSegment, signed, signature) = try Self.split(proof)
 
-        guard let header = Self.decode(Header.self, headerSegment) else {
+        guard let header = Self.decode(headerSegment).flatMap(Header.init) else {
             throw .malformed("header is not JSON")
         }
         guard let alg = ProofAlgorithm(rawValue: header.alg), algorithms.contains(alg),
@@ -130,7 +150,7 @@ public struct Checker: Sendable {
         // stolen token.
         guard Self.constantTimeEqual(try jwk.thumbprint(), thumbprint) else { throw .wrongKey }
 
-        guard let claims = Self.decode(Claims.self, claimsSegment) else {
+        guard let claims = Self.decode(claimsSegment).flatMap(Claims.init) else {
             throw .malformed("claims are not JSON")
         }
         guard Self.constantTimeEqual(claims.ath, Data(SHA256.hash(data: token)).base64URL) else {
@@ -146,7 +166,10 @@ public struct Checker: Sendable {
         if issued < now.addingTimeInterval(-window) { throw .expired }
         if issued > now.addingTimeInterval(window) { throw .notYetValid }
         guard !claims.jti.isEmpty else { throw .malformed("no jti to spend") }
-        try store.spend(claims.jti, until: until, now: now)
+        // The proof is accepted until issued + window, inclusive, and a store
+        // keeps a nonce while its until is after now. A shorter until would
+        // let the same proof in again once the store forgot it.
+        try store.spend(claims.jti, until: max(until, issued.addingTimeInterval(window + 1)), now: now)
     }
 
     /// A compact JWS's segments, with the signed bytes taken verbatim from the
@@ -165,9 +188,8 @@ public struct Checker: Sendable {
         )
     }
 
-    private static func decode<T: Decodable>(_ type: T.Type, _ segment: Data) -> T? {
-        guard let raw = Data(strictBase64URL: String(decoding: segment, as: UTF8.self)) else { return nil }
-        return try? JSONDecoder().decode(type, from: raw)
+    private static func decode(_ segment: Data) -> Data? {
+        Data(strictBase64URL: String(decoding: segment, as: UTF8.self))
     }
 
     /// Compare without leaking where two values first differ.

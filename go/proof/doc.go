@@ -14,6 +14,9 @@
 // Two algorithms: ML-DSA-65 (JOSE "ML-DSA-65", JWK kty "AKP"), the default, and
 // ES256 on P-256, accepted while devices holding older keys roll over.
 //
-// [Prover] makes proofs; [Checker] checks them against a caller-supplied
-// [NonceStore]. See docs/moqom-proof.md for the wire format.
+// [Prover] makes proofs; a [Checker] from [NewChecker] checks them against a
+// caller-supplied [NonceStore], such as [NewDefaultMemoryNonceStore]. Settings
+// that cannot work (no store, no algorithms, a window or capacity that is not
+// positive) are refused when the checker or store is made, with
+// [ErrConfiguration]. See docs/moqom-proof.md for the wire format.
 package proof

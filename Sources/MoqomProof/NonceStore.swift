@@ -10,7 +10,9 @@ import Synchronization
 /// single-use across connections.
 public protocol NonceStore: Sendable {
     /// Record `nonce` as spent until `until`. Called only for a proof that
-    /// passed every other check.
+    /// passed every other check, with `until` no earlier than one second past
+    /// the end of that proof's window. Must check and record the nonce as one
+    /// step.
     ///
     /// - Throws: ``ProofError/replayed`` if it already is,
     ///   ``ProofError/overloaded`` if the store cannot remember another.
@@ -24,13 +26,24 @@ public protocol NonceStore: Sendable {
 /// When full it refuses rather than evicts: evicting would choose which proof
 /// becomes replayable.
 public final class MemoryNonceStore: NonceStore {
-    /// One per session in a token lifetime, far past what one endpoint serves.
+    /// What ``init()`` holds: one per session in a token lifetime, far past
+    /// what one endpoint serves.
     public static let defaultCapacity = 100_000
 
-    private let capacity: Int
+    /// How many unexpired nonces the store holds before refusing.
+    public let capacity: Int
     private let spent = Mutex<[String: Date]>([:])
 
-    public init(capacity: Int = defaultCapacity) {
+    /// A store holding up to ``defaultCapacity`` unexpired nonces.
+    public init() {
+        capacity = Self.defaultCapacity
+    }
+
+    /// A store holding up to `capacity` unexpired nonces.
+    ///
+    /// - Throws: ``ProofError/configuration(_:)`` if `capacity` is not positive.
+    public init(capacity: Int) throws(ProofError) {
+        guard capacity > 0 else { throw .configuration("capacity \(capacity) is not positive") }
         self.capacity = capacity
     }
 

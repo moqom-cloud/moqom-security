@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use aws_lc_rs::signature::{ECDSA_P256_SHA256_FIXED, ML_DSA_65, UnparsedPublicKey};
 use serde::Deserialize;
 
+use crate::json::{object, present};
 use crate::jwk::{PRIVATE_MEMBERS, PublicKey};
 use crate::{
     Algorithm, Error, Jwk, MemoryNonceStore, NonceStore, PROOF_TYPE, b64, constant_time_eq,
@@ -16,7 +17,8 @@ use crate::{
 /// ML-DSA-65 proof, key included, is about 8 KB.
 pub const MAX_PROOF_BYTES: usize = 16 * 1024;
 
-/// How far a proof's `iat` may be from the checker's clock, either way.
+/// How far a proof's `iat` may be from the checker's clock, either way, unless
+/// [`Checker::with_window`] says otherwise.
 pub const DEFAULT_WINDOW: Duration = Duration::from_secs(300);
 
 /// Checks proofs and spends their nonces.
@@ -34,6 +36,7 @@ struct Header {
     alg: String,
     #[serde(default)]
     typ: String,
+    #[serde(default, deserialize_with = "present")]
     jwk: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
@@ -41,6 +44,7 @@ struct Header {
 struct Claims {
     #[serde(default)]
     ath: String,
+    #[serde(default, deserialize_with = "present")]
     iat: Option<i64>,
     #[serde(default)]
     jti: String,
@@ -62,17 +66,29 @@ impl<S: NonceStore> Checker<S> {
     }
 
     /// Accept only `algorithms`.
-    #[must_use]
-    pub fn with_algorithms(mut self, algorithms: &[Algorithm]) -> Self {
+    ///
+    /// # Errors
+    /// [`Error::Configuration`] if `algorithms` is empty.
+    pub fn with_algorithms(mut self, algorithms: &[Algorithm]) -> Result<Self, Error> {
+        if algorithms.is_empty() {
+            return Err(Error::Configuration(
+                "a checker must accept at least one algorithm",
+            ));
+        }
         self.algorithms = algorithms.to_vec();
-        self
+        Ok(self)
     }
 
     /// Allow `iat` to be up to `window` from now, either way.
-    #[must_use]
-    pub const fn with_window(mut self, window: Duration) -> Self {
+    ///
+    /// # Errors
+    /// [`Error::Configuration`] if `window` is zero.
+    pub fn with_window(mut self, window: Duration) -> Result<Self, Error> {
+        if window.is_zero() {
+            return Err(Error::Configuration("window is not positive"));
+        }
         self.window = window;
-        self
+        Ok(self)
     }
 
     /// Refuse every proof when [`Checker::check`] is given no certificate,
@@ -89,10 +105,30 @@ impl<S: NonceStore> Checker<S> {
         &self.store
     }
 
+    /// The algorithms this checker accepts.
+    #[must_use]
+    pub fn algorithms(&self) -> &[Algorithm] {
+        &self.algorithms
+    }
+
+    /// How far `iat` may be from the checker's clock, either way.
+    #[must_use]
+    pub const fn window(&self) -> Duration {
+        self.window
+    }
+
+    /// Whether every proof is refused when the checker is given no
+    /// certificate.
+    #[must_use]
+    pub const fn certificate_required(&self) -> bool {
+        self.require_certificate
+    }
+
     /// Check that `proof` was signed by the key whose thumbprint is
     /// `thumbprint` (the token's `cnf.jkt`), over `token`, for the certificate
     /// whose SHA-256 is `certificate_hash`, at a time within the window of
-    /// `now`, and spend its nonce until `until` (normally the token's expiry).
+    /// `now`, and spend its nonce until `until` (normally the token's expiry),
+    /// or until one second past the end of the proof's window if that is later.
     ///
     /// `certificate_hash` is `None` (or empty) only where the checker has no
     /// certificate of its own, an in-process harness. The proof must then name
@@ -120,23 +156,29 @@ impl<S: NonceStore> Checker<S> {
         let (header, claims, signed, signature) = split(proof)?;
 
         let header: Header = decode(header).ok_or(Error::Malformed("header is not JSON"))?;
+        // The key's members are typed here, with the rest of the header, so a
+        // badly typed key is malformed whatever its alg.
+        let jwk: Option<Jwk> = header
+            .jwk
+            .as_ref()
+            .map(|members| serde_json::from_value(members.clone().into()))
+            .transpose()
+            .map_err(|_| Error::Malformed("header is not JSON"))?;
         let alg = Algorithm::from_jose(&header.alg)
             .filter(|alg| self.algorithms.contains(alg))
             .ok_or(Error::Unsupported)?;
         if header.typ != PROOF_TYPE {
             return Err(Error::Unsupported);
         }
-        let members = header
-            .jwk
-            .ok_or(Error::Malformed("header carries no key"))?;
+        let (Some(members), Some(jwk)) = (header.jwk, jwk) else {
+            return Err(Error::Malformed("header carries no key"));
+        };
         if PRIVATE_MEMBERS
             .iter()
             .any(|name| members.contains_key(*name))
         {
             return Err(Error::Malformed("the key carries a private member"));
         }
-        let jwk: Jwk = serde_json::from_value(members.into())
-            .map_err(|_| Error::Malformed("header is not JSON"))?;
         if jwk.algorithm()? != alg {
             return Err(Error::Unsupported);
         }
@@ -189,7 +231,13 @@ impl<S: NonceStore> Checker<S> {
         if claims.jti.is_empty() {
             return Err(Error::Malformed("no jti to spend"));
         }
-        self.store.spend(&claims.jti, until, now)
+        // The proof is accepted until issued + window, inclusive, and a store
+        // keeps a nonce while its until is after now. A shorter until would
+        // let the same proof in again once the store forgot it.
+        let remember = issued
+            .checked_add(self.window + Duration::from_secs(1))
+            .map_or(until, |end| end.max(until));
+        self.store.spend(&claims.jti, remember, now)
     }
 }
 
@@ -221,6 +269,5 @@ fn split(jws: &[u8]) -> Result<Segments<'_>, Error> {
 }
 
 fn decode<T: for<'de> Deserialize<'de>>(segment: &[u8]) -> Option<T> {
-    let raw = unb64(std::str::from_utf8(segment).ok()?)?;
-    serde_json::from_slice(&raw).ok()
+    object(&unb64(std::str::from_utf8(segment).ok()?)?)
 }

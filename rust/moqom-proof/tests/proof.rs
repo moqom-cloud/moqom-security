@@ -4,7 +4,8 @@
 use std::time::{Duration, SystemTime};
 
 use moqom_proof::{
-    Algorithm, Checker, Error, MAX_PROOF_BYTES, MemoryNonceStore, NonceStore as _, Prover, nonce,
+    Algorithm, Checker, DEFAULT_CAPACITY, DEFAULT_WINDOW, Error, MAX_PROOF_BYTES, MemoryNonceStore,
+    NonceStore as _, Prover, nonce,
 };
 
 const CERTIFICATE: [u8; 32] = [0x2a; 32];
@@ -72,7 +73,9 @@ fn an_ml_dsa_proof_fits_the_limit() {
 fn a_checker_can_refuse_es256() {
     let prover = Prover::generate(Algorithm::Es256).unwrap();
     let proof = prover.prove(b"t", &CERTIFICATE, "n", now()).unwrap();
-    let checker = Checker::new(MemoryNonceStore::default()).with_algorithms(&[Algorithm::MlDsa65]);
+    let checker = Checker::new(MemoryNonceStore::default())
+        .with_algorithms(&[Algorithm::MlDsa65])
+        .unwrap();
     assert_eq!(
         checker.check(
             &proof,
@@ -99,7 +102,7 @@ fn no_certificate_leaves_the_binding_unchecked() {
 
 #[test]
 fn the_store_sweeps_expired_nonces_and_fails_closed() {
-    let store = MemoryNonceStore::new(2);
+    let store = MemoryNonceStore::new(2).unwrap();
     store.spend("a", now(), now()).unwrap();
     store.spend("b", now(), now()).unwrap();
     let later = now() + Duration::from_secs(1);
@@ -116,4 +119,55 @@ fn nonces_are_fresh_and_a_proof_needs_one() {
         prover.prove(b"t", &CERTIFICATE, "", now()),
         Err(Error::Malformed(_))
     ));
+}
+
+#[test]
+fn settings_that_cannot_work_are_refused_at_construction() {
+    let configuration = |result: Result<(), Error>| {
+        assert!(matches!(result, Err(Error::Configuration(_))), "{result:?}");
+        assert_eq!(result.unwrap_err().class(), "configuration");
+    };
+    configuration(MemoryNonceStore::new(0).map(drop));
+    configuration(
+        Checker::new(MemoryNonceStore::default())
+            .with_window(Duration::ZERO)
+            .map(drop),
+    );
+    configuration(
+        Checker::new(MemoryNonceStore::default())
+            .with_algorithms(&[])
+            .map(drop),
+    );
+
+    let checker = Checker::new(MemoryNonceStore::default());
+    assert_eq!(checker.algorithms(), Algorithm::ALL);
+    assert_eq!(checker.window(), DEFAULT_WINDOW);
+    assert!(!checker.certificate_required());
+    assert_eq!(checker.store().capacity(), DEFAULT_CAPACITY);
+}
+
+/// A caller that passes an `until` earlier than the end of the proof's window
+/// must not get the proof accepted twice once the store sweeps.
+#[test]
+fn a_short_until_cannot_reopen_replay() {
+    let prover = Prover::generate(Algorithm::MlDsa65).unwrap();
+    let checker = Checker::new(MemoryNonceStore::new(2).unwrap());
+    let proof = prover
+        .prove(b"a.token", &CERTIFICATE, &nonce().unwrap(), now())
+        .unwrap();
+    let check = |at: SystemTime| {
+        checker.check(
+            &proof,
+            b"a.token",
+            Some(&CERTIFICATE),
+            prover.thumbprint(),
+            at,
+            at,
+        )
+    };
+    assert_eq!(check(now()), Ok(()));
+    // Fill the store so that the next spend sweeps whatever has expired.
+    checker.store().spend("filler", now(), now()).unwrap();
+    assert_eq!(check(now() + DEFAULT_WINDOW), Err(Error::Replayed));
+    assert_eq!(checker.store().remembered(), 1);
 }

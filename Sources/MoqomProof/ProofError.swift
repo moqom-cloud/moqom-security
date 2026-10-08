@@ -25,6 +25,9 @@ public enum ProofError: Error, Hashable, Sendable, CustomStringConvertible {
     case overloaded
     /// The key refused to sign.
     case notSigned
+    /// A checker or store built with settings that cannot work: no
+    /// algorithms, or a window or capacity that is not positive.
+    case configuration(String)
 
     /// The error class the shared vectors name.
     public var errorClass: String {
@@ -40,6 +43,7 @@ public enum ProofError: Error, Hashable, Sendable, CustomStringConvertible {
         case .replayed: "replayed"
         case .overloaded: "overloaded"
         case .notSigned: "signing"
+        case .configuration: "configuration"
         }
     }
 
@@ -56,6 +60,7 @@ public enum ProofError: Error, Hashable, Sendable, CustomStringConvertible {
         case .replayed: "proof nonce has already been spent"
         case .overloaded: "nonce store is full"
         case .notSigned: "signing the proof failed"
+        case let .configuration(why): "proof checker or nonce store is misconfigured: \(why)"
         }
     }
 }

@@ -75,7 +75,7 @@ struct ExamplesTests {
         let proof = try older.prove(token: token, certificateHash: relay, nonce: Prover.nonce(), issuedAt: now)
 
         let both = Checker(store: MemoryNonceStore())
-        let strict = Checker(store: MemoryNonceStore(), algorithms: [.mlDSA65])
+        let strict = try Checker(store: MemoryNonceStore(), algorithms: [.mlDSA65])
         try both.check(proof, token: token, certificateHash: relay, thumbprint: older.thumbprint, now: now, until: expiry)
         #expect(throws: ProofError.unsupported) {
             try strict.check(proof, token: token, certificateHash: relay, thumbprint: older.thumbprint, now: now, until: expiry)

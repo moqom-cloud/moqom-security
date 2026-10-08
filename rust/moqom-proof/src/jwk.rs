@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::json::present;
 use crate::{Error, b64, sha256_b64, unb64};
 
 pub(crate) const ML_DSA_65_PUBLIC_KEY_BYTES: usize = 1952;
@@ -54,19 +55,40 @@ pub struct Jwk {
     #[serde(default)]
     pub kty: String,
     /// `ML-DSA-65`, for an `AKP` key.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub alg: Option<String>,
     /// The raw ML-DSA public key, base64url, for an `AKP` key.
-    #[serde(default, rename = "pub", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "pub",
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub public: Option<String>,
     /// `P-256`, for an `EC` key.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub crv: Option<String>,
     /// The x coordinate, base64url, for an `EC` key.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub x: Option<String>,
     /// The y coordinate, base64url, for an `EC` key.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub y: Option<String>,
 }
 

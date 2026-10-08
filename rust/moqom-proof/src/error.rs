@@ -38,6 +38,10 @@ pub enum Error {
     /// The key or the system random source refused to sign.
     #[error("signing the proof failed")]
     Signing,
+    /// A checker or store built with settings that cannot work: no
+    /// algorithms, or a window or capacity of zero.
+    #[error("proof checker or nonce store is misconfigured: {0}")]
+    Configuration(&'static str),
 }
 
 impl Error {
@@ -56,6 +60,7 @@ impl Error {
             Self::Replayed => "replayed",
             Self::Overloaded => "overloaded",
             Self::Signing => "signing",
+            Self::Configuration(_) => "configuration",
         }
     }
 }

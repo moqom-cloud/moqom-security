@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +35,10 @@ func TestARoundTripInEachAlgorithm(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			checker := Checker{Store: NewMemoryNonceStore(0)}
+			checker, err := NewChecker(NewDefaultMemoryNonceStore())
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err := checker.Check(proof, token, certificate[:], prover.Thumbprint(), testNow, testUntil); err != nil {
 				t.Fatalf("Check() = %v", err)
 			}
@@ -91,7 +95,10 @@ func TestACheckerCanBeLimitedToOneAlgorithm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checker := Checker{Store: NewMemoryNonceStore(0), Algorithms: []Algorithm{MLDSA65}}
+	checker, err := NewChecker(NewDefaultMemoryNonceStore(), WithAlgorithms(MLDSA65))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := checker.Check(proof, []byte("t"), certificate[:], prover.Thumbprint(), testNow, testUntil); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("Check() = %v, want ErrUnsupported", err)
 	}
@@ -144,7 +151,10 @@ func TestASignerThatRefusesIsClassedSigning(t *testing.T) {
 }
 
 func TestTheStoreSweepsExpiredNoncesAndFailsClosed(t *testing.T) {
-	store := NewMemoryNonceStore(2)
+	store, err := NewMemoryNonceStore(2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, nonce := range []string{"a", "b"} {
 		if err := store.Spend(nonce, testNow, testNow); err != nil {
 			t.Fatal(err)
@@ -158,5 +168,79 @@ func TestTheStoreSweepsExpiredNoncesAndFailsClosed(t *testing.T) {
 	}
 	if err := store.Spend("e", testUntil, testNow.Add(time.Second)); !errors.Is(err, ErrOverloaded) {
 		t.Errorf("Spend() = %v, want ErrOverloaded", err)
+	}
+}
+
+func TestSettingsThatCannotWorkAreRefusedAtConstruction(t *testing.T) {
+	store := NewDefaultMemoryNonceStore()
+	_, zero := NewMemoryNonceStore(0)
+	_, negative := NewMemoryNonceStore(-1)
+	_, noStore := NewChecker(nil)
+	_, zeroWindow := NewChecker(store, WithWindow(0))
+	_, negativeWindow := NewChecker(store, WithWindow(-time.Second))
+	_, noAlgorithms := NewChecker(store, WithAlgorithms())
+	_, unknownAlgorithm := NewChecker(store, WithAlgorithms("EdDSA"))
+	var unbuilt Checker
+	var unbuiltStore MemoryNonceStore
+	for name, err := range map[string]error{
+		"capacity 0":        zero,
+		"capacity -1":       negative,
+		"no store":          noStore,
+		"window 0":          zeroWindow,
+		"window -1s":        negativeWindow,
+		"no algorithms":     noAlgorithms,
+		"unknown algorithm": unknownAlgorithm,
+		"a zero Checker":    unbuilt.Check([]byte("p"), []byte("t"), nil, "jkt", testNow, testUntil),
+		"a zero store":      unbuiltStore.Spend("n", testUntil, testNow),
+		"a nil *Checker":    (*Checker)(nil).Check([]byte("p"), []byte("t"), nil, "jkt", testNow, testUntil),
+	} {
+		if !errors.Is(err, ErrConfiguration) || Class(err) != "configuration" {
+			t.Errorf("%s: %v (%q), want ErrConfiguration", name, err, Class(err))
+		}
+	}
+
+	checker, err := NewChecker(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(checker.Algorithms(), Algorithms) || checker.Window() != DefaultWindow ||
+		checker.CertificateRequired() || store.Capacity() != DefaultCapacity {
+		t.Errorf("defaults: %v %v %v %d", checker.Algorithms(), checker.Window(), checker.CertificateRequired(), store.Capacity())
+	}
+}
+
+// A caller that passes an until earlier than the end of the proof's window
+// must not get the proof accepted twice once the store sweeps.
+func TestAShortUntilCannotReopenReplay(t *testing.T) {
+	prover, err := GenerateProver(MLDSA65)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewMemoryNonceStore(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker, err := NewChecker(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := []byte("a.token")
+	proof, err := prover.Prove(token, certificate[:], NewNonce(), testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checker.Check(proof, token, certificate[:], prover.Thumbprint(), testNow, testNow); err != nil {
+		t.Fatal(err)
+	}
+	// Fill the store so that the next spend sweeps whatever has expired.
+	if err := store.Spend("filler", testNow, testNow); err != nil {
+		t.Fatal(err)
+	}
+	edge := testNow.Add(DefaultWindow)
+	if err := checker.Check(proof, token, certificate[:], prover.Thumbprint(), edge, edge); !errors.Is(err, ErrReplayed) {
+		t.Errorf("at the edge of the window: %v, want ErrReplayed", err)
+	}
+	if store.Remembered() != 1 {
+		t.Errorf("remembered %d, want only the proof's nonce", store.Remembered())
 	}
 }

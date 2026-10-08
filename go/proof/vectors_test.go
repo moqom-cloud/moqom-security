@@ -105,15 +105,18 @@ func TestProofVectors(t *testing.T) {
 	file, cases := readVectors[proofCase](t, "proofs.json")
 	for _, v := range cases {
 		t.Run(v.Name, func(t *testing.T) {
-			store := NewMemoryNonceStore(0)
+			store := NewDefaultMemoryNonceStore()
 			now, until := time.Unix(v.Now, 0), time.Unix(v.Until, 0)
 			for _, nonce := range v.Spent {
 				if err := store.Spend(nonce, until, now); err != nil {
 					t.Fatal(err)
 				}
 			}
-			checker := Checker{Store: store, Window: time.Duration(file.Window) * time.Second, RequireCertificate: v.RequireCertificate}
-			err := checker.Check([]byte(v.Proof), []byte(v.Token), decodeHex(t, v.CertificateHashHex), v.Thumbprint, now, until)
+			checker, err := NewChecker(store, WithWindow(time.Duration(file.Window)*time.Second), WithCertificateRequired(v.RequireCertificate))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = checker.Check([]byte(v.Proof), []byte(v.Token), decodeHex(t, v.CertificateHashHex), v.Thumbprint, now, until)
 			if Class(err) != v.Error {
 				t.Fatalf("Check() = %v (%q), want %q", err, Class(err), v.Error)
 			}

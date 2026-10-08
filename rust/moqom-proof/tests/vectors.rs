@@ -115,6 +115,7 @@ fn proofs() {
         let (now, until) = (at(case.now), at(case.until));
         let checker = Checker::new(MemoryNonceStore::default())
             .with_window(Duration::from_secs(file.window_seconds))
+            .expect("a positive window")
             .with_certificate_required(case.require_certificate);
         for nonce in &case.spent {
             checker.store().spend(nonce, until, now).expect("spent");

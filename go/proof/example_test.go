@@ -30,7 +30,10 @@ func Example() {
 	}
 
 	// On the relay.
-	checker := &proof.Checker{Store: proof.NewMemoryNonceStore(proof.DefaultCapacity)}
+	checker, err := proof.NewChecker(proof.NewDefaultMemoryNonceStore())
+	if err != nil {
+		panic(err)
+	}
 	expiry := now.Add(15 * time.Minute)
 	fmt.Println(checker.Check(p, token, relayCertificate[:], jkt, now, expiry))
 	fmt.Println(proof.Class(checker.Check(p, token, relayCertificate[:], jkt, now, expiry)))
@@ -69,7 +72,7 @@ func ExampleChecker_Check_refusals() {
 	other := sha256.Sum256([]byte("relay B's leaf certificate"))
 	now := time.Now()
 	expiry := now.Add(15 * time.Minute)
-	checker := &proof.Checker{Store: proof.NewMemoryNonceStore(0)}
+	checker, _ := proof.NewChecker(proof.NewDefaultMemoryNonceStore())
 
 	check := func(p []byte, at time.Time) {
 		fmt.Println(proof.Class(checker.Check(p, token, relay[:], device.Thumbprint(), at, expiry)))
@@ -99,8 +102,8 @@ func ExampleChecker_algorithms() {
 	expiry := now.Add(15 * time.Minute)
 	p, _ := older.Prove(token, relay[:], proof.NewNonce(), now)
 
-	both := &proof.Checker{Store: proof.NewMemoryNonceStore(0)}
-	strict := &proof.Checker{Store: proof.NewMemoryNonceStore(0), Algorithms: []proof.Algorithm{proof.MLDSA65}}
+	both, _ := proof.NewChecker(proof.NewDefaultMemoryNonceStore())
+	strict, _ := proof.NewChecker(proof.NewDefaultMemoryNonceStore(), proof.WithAlgorithms(proof.MLDSA65))
 	fmt.Println(both.Check(p, token, relay[:], older.Thumbprint(), now, expiry))
 	fmt.Println(proof.Class(strict.Check(p, token, relay[:], older.Thumbprint(), now, expiry)))
 	// Output:
@@ -111,9 +114,9 @@ func ExampleChecker_algorithms() {
 // Checkers that share a store share what has been spent, so a proof accepted
 // on one connection is refused on every other.
 func ExampleMemoryNonceStore() {
-	store := proof.NewMemoryNonceStore(proof.DefaultCapacity)
-	first := &proof.Checker{Store: store}
-	second := &proof.Checker{Store: store, Algorithms: []proof.Algorithm{proof.MLDSA65}}
+	store := proof.NewDefaultMemoryNonceStore()
+	first, _ := proof.NewChecker(store)
+	second, _ := proof.NewChecker(store, proof.WithAlgorithms(proof.MLDSA65))
 
 	device, _ := proof.GenerateProver(proof.MLDSA65)
 	token := []byte("eyJhbGciOiJNTC1EU0EtNjUi...")
