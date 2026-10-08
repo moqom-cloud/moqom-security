@@ -46,8 +46,10 @@ struct ExamplesTests {
         let sender = SFrameSender(key: aliceGroup.sframeKey(for: aliceGroup.ownLeaf, suite: .aes256GcmSha512))
         let receiver = SFrameReceiver()
         for key in bobGroup.sframeKeys(suite: .aes256GcmSha512) { receiver.add(key) }
-        let frame = try sender.protectRaw(Data("hello".utf8), aad: Data())
-        #expect(try receiver.unprotectRaw(frame, aad: Data()) == Data("hello".utf8))
+        let track = SFrameTrack(namespace: ["moqom", "demo", "alice"], name: "video")
+        let metadata = SFrameMetadata(track: track, group: 0, object: 0, priority: 128)
+        let object = try sender.protect(Data("hello".utf8), metadata: metadata)
+        #expect(try receiver.unprotect(object, metadata: metadata) == Data("hello".utf8))
     }
 
     /// Removing a member: the removed member's `process` returns `.removed`.

@@ -201,15 +201,4 @@ public struct MLSEpochSecrets: Sendable {
     public func exporter(label: String, context: Data = Data(), length: Int) throws(MLSError) -> Data {
         try exporter(label: Data(label.utf8), context: context, length: length)
     }
-
-    /// The exporter with an empty context, for a length the caller fixes no
-    /// larger than an AEAD key, as RFC 9605's `base_key` is. Traps past
-    /// `maximumExporterLength`.
-    func exporter(label: String, length: Int) -> Data {
-        do {
-            return try exporter(label: Data(label.utf8), context: Data(), length: length)
-        } catch {
-            preconditionFailure("an exporter length of \(length) is past the HKDF limit")
-        }
-    }
 }

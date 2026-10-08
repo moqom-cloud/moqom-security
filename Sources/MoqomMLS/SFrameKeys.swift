@@ -20,8 +20,17 @@ public enum MLSSFrameKeys {
     public static var epochBits: UInt64 { SFrameKeyID.epochBits }
 
     /// `base_key = MLS-Exporter("SFrame 1.0 Base Key", "", AEAD.Nk)`.
+    ///
+    /// Does not throw: `AEAD.Nk` is 16 or 32 bytes for every SFrame suite, and
+    /// the exporter refuses only lengths past 255 times the MLS suite's hash
+    /// length (at least 8,160 bytes). A refusal would be a bug in this module,
+    /// so it stops the process rather than return a wrong key.
     public static func baseKey(_ secrets: MLSEpochSecrets, suite: SFrameCipherSuite) -> Data {
-        secrets.exporter(label: SFrameKeyID.mlsExporterLabel, length: suite.keyLength)
+        do {
+            return try secrets.exporter(label: SFrameKeyID.mlsExporterLabel, length: suite.keyLength)
+        } catch {
+            preconditionFailure("an SFrame key length of \(suite.keyLength) is past the exporter's limit")
+        }
     }
 
     /// `KID = (context << (S + E)) + (index << E) + (epoch % (1 << E))`, context 0.
@@ -65,7 +74,8 @@ public enum MLSSFrameKeys {
 
 extension MLSGroup {
     /// The epoch's SFrame base key, from which every member's key derives.
-    /// What a broadcast's viewers are sealed; see ``MLSAudience``.
+    /// What a broadcast's viewers are sealed; see ``MLSAudience``. Never
+    /// fails; see ``MLSSFrameKeys/baseKey(_:suite:)``.
     public func sframeBaseKey(suite: SFrameCipherSuite) -> Data {
         MLSSFrameKeys.baseKey(secrets, suite: suite)
     }

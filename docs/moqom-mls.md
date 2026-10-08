@@ -193,7 +193,10 @@ case .removed: ...
 }
 try group.exporter(label: "SFrame 1.0 Base Key", length: 32)
 group.epochAuthenticator; group.roster
-group.sframeBaseKey(suite: .aes256GcmSha512); group.sframeKeys(suite:)   // RFC 9605 §5.2
+group.sframeBaseKey(suite: .aes256GcmSha512); group.sframeKeys(suite:)   // RFC 9605 §5.2, never throw
+let track = SFrameTrack(namespace: ["moqom", "demo", "alice"], name: "video")
+let object = try SFrameSender(key: group.sframeKey(for: group.ownLeaf, suite: .aes256GcmSha512))
+    .protect(frame, metadata: SFrameMetadata(track: track, group: 0, object: 0, priority: 128))
 
 let keys = bundle.privateKeys            // (initPrivate, encryptionPrivate, signaturePrivate)
 let restored = MLSKeyPackageBundle(keyPackage: try MLSKeyPackage.decode(stored),
