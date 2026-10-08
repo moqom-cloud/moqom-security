@@ -1,0 +1,77 @@
+{
+  "library": "moqom-mls",
+  "description": "RFC 9420 \u00a72.1.2 variable-length vector headers, both directions.",
+  "source": "https://raw.githubusercontent.com/mlswg/mls-implementations/2034fe72e0c805a683ba76165660c834f2a8142a/test-vectors/deserialization.json",
+  "cases": [
+    {
+      "name": "header-00",
+      "vlbytes_header": "00",
+      "length": 0
+    },
+    {
+      "name": "header-0d",
+      "vlbytes_header": "0d",
+      "length": 13
+    },
+    {
+      "name": "header-36",
+      "vlbytes_header": "36",
+      "length": 54
+    },
+    {
+      "name": "header-3f",
+      "vlbytes_header": "3f",
+      "length": 63
+    },
+    {
+      "name": "header-4040",
+      "vlbytes_header": "4040",
+      "length": 64
+    },
+    {
+      "name": "header-40ff",
+      "vlbytes_header": "40ff",
+      "length": 255
+    },
+    {
+      "name": "header-4185",
+      "vlbytes_header": "4185",
+      "length": 389
+    },
+    {
+      "name": "header-4aaa",
+      "vlbytes_header": "4aaa",
+      "length": 2730
+    },
+    {
+      "name": "header-4fff",
+      "vlbytes_header": "4fff",
+      "length": 4095
+    },
+    {
+      "name": "header-7fff",
+      "vlbytes_header": "7fff",
+      "length": 16383
+    },
+    {
+      "name": "header-80004000",
+      "vlbytes_header": "80004000",
+      "length": 16384
+    },
+    {
+      "name": "header-8000beef",
+      "vlbytes_header": "8000beef",
+      "length": 48879
+    },
+    {
+      "name": "header-8000dead",
+      "vlbytes_header": "8000dead",
+      "length": 57005
+    },
+    {
+      "name": "header-bfffffff",
+      "vlbytes_header": "bfffffff",
+      "length": 1073741823
+    }
+  ]
+}

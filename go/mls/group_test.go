@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Elliott Wave LLC
+
+package mls
+
+import (
+	"bytes"
+	"errors"
+	"testing"
+)
+
+func TestGroupRoundTrip(t *testing.T) {
+	for _, suite := range []CipherSuite{SuiteMLDSA, SuiteXWing, SuiteX25519} {
+		t.Run(suite.Name(), func(t *testing.T) {
+			bundle := must[*KeyPackageBundle](t)
+			group := must[*Group](t)
+			commit := must[*PendingCommit](t)
+
+			alice := group(CreateGroup([]byte("g"), bundle(GenerateKeyPackage("alice", suite))))
+			bob := bundle(GenerateKeyPackage("bob", suite))
+			carol := bundle(GenerateKeyPackage("carol", suite))
+
+			add := commit(alice.Commit([]*KeyPackage{bob.KeyPackage, carol.KeyPackage}, nil))
+			wire, err := DecodeWelcome(add.Welcome.Encode())
+			if err != nil {
+				t.Fatal(err)
+			}
+			bobGroup := group(Join(wire, bob))
+			carolGroup := group(Join(wire, carol))
+			alice = add.Next
+			for _, g := range []*Group{bobGroup, carolGroup} {
+				if !bytes.Equal(g.EpochAuthenticator(), alice.EpochAuthenticator()) ||
+					!bytes.Equal(g.Exporter(SFrameExporterLabel, nil, 16), alice.Exporter(SFrameExporterLabel, nil, 16)) {
+					t.Fatal("joiners disagree with the founder")
+				}
+			}
+
+			remove := commit(bobGroup.Commit(nil, []uint32{0}))
+			message, err := DecodeCommitMessage(remove.Message.Encode())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, removed, err := alice.Process(message); err != nil || !removed {
+				t.Fatalf("alice was not removed: %v", err)
+			}
+			carolGroup = advance(t, carolGroup, message)
+			if !bytes.Equal(carolGroup.EpochAuthenticator(), remove.Next.EpochAuthenticator()) || len(carolGroup.Members()) != 3 {
+				t.Fatal("carol disagrees after the remove")
+			}
+			if _, _, err := carolGroup.Process(message); !errors.Is(err, ErrWrongEpoch) {
+				t.Fatalf("replay: %v", err)
+			}
+		})
+	}
+}
+
+func TestAudienceRoundTrip(t *testing.T) {
+	private, public, err := GenerateAudienceKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := bytes.Repeat([]byte{7}, 32)
+	envelope, err := SealAudience(base, public, []byte("g"), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := OpenAudience(envelope, private, []byte("g"), 3); err != nil || !bytes.Equal(got, base) {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := OpenAudience(envelope, private, []byte("g"), 4); !errors.Is(err, ErrDecryptionFailed) {
+		t.Fatalf("other epoch: %v", err)
+	}
+	if _, err := SealAudience(base, public[:32], []byte("g"), 3); err == nil {
+		t.Fatal("sealed to an X25519-sized key")
+	}
+}

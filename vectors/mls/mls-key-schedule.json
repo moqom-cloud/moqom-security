@@ -1,0 +1,191 @@
+{
+  "cases" : [
+    {
+      "cipher_suite" : 61610,
+      "epochs" : [
+        {
+          "commit_secret_hex" : "fa4681b7f4108cc01a9055cd5dc769119c038371bdfd2e5c0d117dc533cd1ce772a6b4b6addba51c99c1260a7dec9e4d",
+          "confirmation_key_hex" : "e37088b572d39fffa11cec1b761f9d53980b3e787cc5b50b79c628ee4b3c3fb9d5b4a9d29f76e0aec609c728f13c89ef",
+          "confirmed_transcript_hash_hex" : "",
+          "encryption_secret_hex" : "d4fb71198578cb99b5144ff8b66e6566268f6f67c23a2c04df458bab72381f1a38c8bbf2a174dceeb25bf6d41cc2cacc",
+          "epoch_authenticator_hex" : "681656fc582cca6859549a41dbb37d4b03068a8f97a7ac9b5da07cee83e03d6f656310cb2e58c090321a84dc4e73bee3",
+          "epoch_secret_hex" : "acb6d99cc7e3145a2fb445d5a83ea59bc4d8040e4ec0eeb338434371d32286717a344e5699c9e1500e436a846b7e89ad",
+          "exporter_secret_hex" : "55b5ae66c9f73502b91fc54429a1801d14d901e5396aaeaca316ab3342f76ff39944eb8a8adcc1df8b066fa5f15fd811",
+          "exporters" : [
+            {
+              "context_hex" : "",
+              "label" : "SFrame 1.0 Base Key",
+              "length" : 32,
+              "out_hex" : "1df8cc8d309b0073a74ce51cceacf14786bdab95a0594aea810330fcd1ae9f5f"
+            },
+            {
+              "context_hex" : "",
+              "label" : "SFrame 1.0 Base Key",
+              "length" : 16,
+              "out_hex" : "ee7a974861c60ce262cadc90fc17852a"
+            },
+            {
+              "context_hex" : "",
+              "label" : "MOQOM direct offer",
+              "length" : 32,
+              "out_hex" : "d1f365e0866f358e07ecd162a3e2241d1bb52522531c48721c7cf7e9657bead1"
+            },
+            {
+              "context_hex" : "b2d82180e3a7d0d7638a768eaccf3295fee0999e",
+              "label" : "label",
+              "length" : 64,
+              "out_hex" : "335ff2cd43faf5a8f1dbda02b3ec67991abf79673cba3857c81fd1491738e44333759a2afb2298fe7a9c7c6941725ec89409e8aa3bace6b3693d63da36318933"
+            }
+          ],
+          "external_secret_hex" : "a37fc743d8201ad9337bcb451d4957cb3712a6e833e426006e13fb5136fa5e179e2fb33118f616fa8da7b9b22b6fe9c2",
+          "group_context_hex" : "0001f0aa10ce48185b5939c71eaef9220bbd10e1040000000000000000300f72d171d6ba1d09fc315aca5a9fde4baaafb8a0afa4e79e7b81e6b81310291fb2510c0e62e99171801718566d8c028c0000",
+          "init_secret_hex" : "e7efbed24e3fddacc9837049a0773c2725ab24e766f5ad6cd7d86bc06b17dd0122d49b92b537f547fe4fcc2b7c9a9d7d",
+          "joiner_secret_hex" : "48a1c6d76e2196e60c959559a368bcc87f29c4449d16898e8c67914cc2d2071f8a6bc43f2b476af8d129be53cc88f6f4",
+          "membership_key_hex" : "b3d84964b715f441ec372534024545b3d0c2c94f4b25ae5da4aadfad1d28dbb7b640d7a820d04a587dcba9fbbda563e6",
+          "resumption_psk_hex" : "bad52c3971c800ea866d4c5e669f5c00c1f42acbc9fa967f5f76452f88ecd0d3eaff869ef74e4dbffa9df713abd78f32",
+          "sender_data_secret_hex" : "090c0deceedd86a8c8cb832adc8fa4814e6467b697fbc00c38dce1d38e93721d95bc348fb4c1b62fedbf377ab03b6b9f",
+          "tree_hash_hex" : "0f72d171d6ba1d09fc315aca5a9fde4baaafb8a0afa4e79e7b81e6b81310291fb2510c0e62e99171801718566d8c028c",
+          "welcome_secret_hex" : "817a539650b2a8f2635d759bec19234cf3eb89d35a8cf3ee5fdc83c23baa5927d7080efb7709150573003ef4d6746782"
+        },
+        {
+          "commit_secret_hex" : "836b463211724552a2ecd06067f76997ebbd7385ec57e1bc39a41d3424e81deb7db49afee175ab17dfbe3c4afe9085f7",
+          "confirmation_key_hex" : "9cf68111a3c6f1969f75c659b8bb7b6f8b318d110d1a96b69284284671b7515c984dbf0ccfebcbd12e9ed119d9e44f87",
+          "confirmed_transcript_hash_hex" : "825870b285cc32923f01ae312cb1c2b82319e3d4c9c1a5f4ae4b0ccb647e13f728bc8135082f5a73885b485a540e2593",
+          "encryption_secret_hex" : "c53e8bf23d86fa5f49437de1612589ca029115f051606b8778891614a4c4194dba2ec3afdb266f84cb6c9740eef84578",
+          "epoch_authenticator_hex" : "c605a1303922728ddec33af36325478413f940b0627c542af2f5b7d913b2646f5d0d482331eb6c2cb8756de21d79eb0d",
+          "epoch_secret_hex" : "6332914aafef40f7172900cdf9b9f2cc0f8f907536436601cbcbcae6b8db221409d48355e4da705a1fdd27d965728ab1",
+          "exporter_secret_hex" : "ed299589267f6df78674b6336c0299f7a6edeb62783fca84a41ea11f8fe68fba43a2d0cbecc8014a70c984c1626ba9ab",
+          "exporters" : [
+            {
+              "context_hex" : "",
+              "label" : "SFrame 1.0 Base Key",
+              "length" : 32,
+              "out_hex" : "7cb7830be87d880554e75c78a8eb9f813d5f52b27e8c77468bd3cafc444fab12"
+            },
+            {
+              "context_hex" : "",
+              "label" : "SFrame 1.0 Base Key",
+              "length" : 16,
+              "out_hex" : "2066924747ffa35cbc96778497ec5755"
+            },
+            {
+              "context_hex" : "",
+              "label" : "MOQOM direct offer",
+              "length" : 32,
+              "out_hex" : "fd23df7d8cedfc964095ab45888d98371b6635240c0ba9514002f06a08aa9812"
+            },
+            {
+              "context_hex" : "b2d82180e3a7d0d7638a768eaccf3295fee0999e",
+              "label" : "label",
+              "length" : 64,
+              "out_hex" : "21c72fc5d478cd5ef88b751c0b49cac2b9324597f115ef3511545121c184ac56d7ddb6e20f3226cf6fdb8b12d2677eedd4bfbca25b2f5dfa22c1799f1893a388"
+            }
+          ],
+          "external_secret_hex" : "d2197bb9300a3e17c5dcc4426a630700e5a237750d7b23c3981f3d17246f69e99236345c7314477b0b9527b9b268ec30",
+          "group_context_hex" : "0001f0aa10ce48185b5939c71eaef9220bbd10e104000000000000000130f0eccd3a9e8831892370867703b81683ee1921f42d966bd4d688a8d51b2cfe4b9930d972811d74f7afdf8e17f08ccccf30825870b285cc32923f01ae312cb1c2b82319e3d4c9c1a5f4ae4b0ccb647e13f728bc8135082f5a73885b485a540e259300",
+          "init_secret_hex" : "a3e4eed0ab69ad66d8e933938bf08f54eaec9f54cb22e2d02fcfec3de934a7ceeb4242938cc0d82995df17bc88ea8dce",
+          "joiner_secret_hex" : "3690a5578fbb5fbd4d44708d8e54ad7fa57a4a490581dbc226c06cd0c848f27c4a6f58c37504788aa8e7a1549dbdfef5",
+          "membership_key_hex" : "5ff5f52f49d764e97c5ccbe5e4f0cb74d68c606cb9e3b8b8f2d6381091681535e1fc5bf9357618dbd74807dae56ee3b0",
+          "resumption_psk_hex" : "191f608a37676f797fc3cf84c15cc90d8972920fe33023a59ba4e4fd10b1967122b02e40bbba91bb8522b8d85d1f1758",
+          "sender_data_secret_hex" : "494b124b817618b24c471f17ac6a0ab8f520b43aed2d3fb49fce663077241570bda6ff4d3b018026ef308d061475a281",
+          "tree_hash_hex" : "f0eccd3a9e8831892370867703b81683ee1921f42d966bd4d688a8d51b2cfe4b9930d972811d74f7afdf8e17f08ccccf",
+          "welcome_secret_hex" : "53f12fb7210e3373682f75bbd946296b3a4429d219748e7f37ae96932fa132018b0b761e7cf9466f008a53294496a192"
+        },
+        {
+          "commit_secret_hex" : "f6744d5f478f0bf0db386ac18cdbeb4a534aa6f3b617d2e73c9c7aa6b2e33ac0cf8ddf1850b2c65c4c90ba902e566d8a",
+          "confirmation_key_hex" : "d6d14bbf52b39f6168a956359f039908f01e9f4d4e8cf8fa69104a980304451765cefc352d79ef83f65c580f318e0bfa",
+          "confirmed_transcript_hash_hex" : "8e72137059a9f340a9aa098075b8e51cebf74b2994c426d0c06c0f799b607e97d698596dcc5fd0290719dd5bdc5de939",
+          "encryption_secret_hex" : "9b72b4ac592b2359d6e999497aa5a03bf54e457d1e6e692e30099b40663c80a0cdbee81f9190c55fdaff65cc18843e76",
+          "epoch_authenticator_hex" : "b55b5e83e9b315723ed9179b360c650a13786cba5893e967019e25893638d47d4b296ac82990ecd5b0fbc6d00b89e209",
+          "epoch_secret_hex" : "dd52a8035416c56ec43f0c3c1f738c145be2e59a034b23f63fe9380f404bf0959ab9840909ed89d43e1ee2ede0c139bd",
+          "exporter_secret_hex" : "441a7658651bab238bc2224127b59f8528690b78a80a361af2b06c57b3819b42b7d195e555a89e4a9ddbe2655feb140e",
+          "exporters" : [
+            {
+              "context_hex" : "",
+              "label" : "SFrame 1.0 Base Key",
+              "length" : 32,
+              "out_hex" : "756aec105c175dd9e5c5e310c323a3cd329906f017e66a2f035c23d468a48dd2"
+            },
+            {
+              "context_hex" : "",
+              "label" : "SFrame 1.0 Base Key",
+              "length" : 16,
+              "out_hex" : "42c1d34858233cca1620083c465b9667"
+            },
+            {
+              "context_hex" : "",
+              "label" : "MOQOM direct offer",
+              "length" : 32,
+              "out_hex" : "6d36e562fa64d69be2e7909fd71a3609e59148d09b7736e06dc598086d637b96"
+            },
+            {
+              "context_hex" : "b2d82180e3a7d0d7638a768eaccf3295fee0999e",
+              "label" : "label",
+              "length" : 64,
+              "out_hex" : "c5d7fc3fbb1e409972f578edba9fff852e35adf84abd3b36ebc53014370ff1b21e8f683972e1066dac3c2add6f7574553d23f4e33bb52b7900c1cd7739829e7e"
+            }
+          ],
+          "external_secret_hex" : "aec7aeb3c9fd47486fc14ced7fd03e80d2eee8ada8b5d1e0c75291e1896f7cc9b8677acada7953361430bb753526ed0f",
+          "group_context_hex" : "0001f0aa10ce48185b5939c71eaef9220bbd10e1040000000000000002305e230c2158e874f5c67990e817c74d4bcae41bc8669e16b7b8028f5d9d7ca686b69a2359c336820d5c0237e1b5b296bc308e72137059a9f340a9aa098075b8e51cebf74b2994c426d0c06c0f799b607e97d698596dcc5fd0290719dd5bdc5de93900",
+          "init_secret_hex" : "c4ff99f67d81f66aaf8f60ef0c0e0f0028fdb7db576d5382ef2b8f65f9e90a7d08221643584949de9f36b91663036bed",
+          "joiner_secret_hex" : "ad42bec431601cb093cff7950749bb40a9b70d4df48c7fe9269c31b891d3517e7d977c5d0d542719719357387272bb36",
+          "membership_key_hex" : "26c6f368a5b1b7d0e6042ed306b95a8f0870c4c4ec68370f134ad478a0dd60c61ee3f54051db72544804a698caa1faa2",
+          "resumption_psk_hex" : "23627458096ab6605b8d31e3a4157c33e3a5e5f2be468011f5a90edb57917500c559135d56b361863fbfcceae791ceca",
+          "sender_data_secret_hex" : "83cb56f151fc4428379a7c3f537709f4955065ba432eace0a4d3924d584777ea8203adf3a89df3eedd9020ef0d2e8b7e",
+          "tree_hash_hex" : "5e230c2158e874f5c67990e817c74d4bcae41bc8669e16b7b8028f5d9d7ca686b69a2359c336820d5c0237e1b5b296bc",
+          "welcome_secret_hex" : "fa8cef9fe0cdf57f1d40c834f936966c3c0e83b4ddfbf58997e1b57d527e16ef2101fc7d2ee0c257befdf2a3fc8fa54c"
+        },
+        {
+          "commit_secret_hex" : "68911ab77f833b9c7d74a2bf04118ee0c4dc468af490e15f139d19596a4efe2aa3834698b521924740dd88c0d5f5f8b4",
+          "confirmation_key_hex" : "36a930df841d3a2086b07ba35112eb14077f2f02a76434b8597ba6251007c1e3ec697fbd5f82ab1e4b183c2484ea0fb6",
+          "confirmed_transcript_hash_hex" : "c906de7df2ba0fc0b6a2d60a4e6a91e6b2983c639febb0aa3790a831d2893bab941e696df4453da408e7fd7f8eb3f071",
+          "encryption_secret_hex" : "d9c94194182faf51fa0f6d8bfa9ea670e028cdfc021419b81a704c7c186082a400a7b2b35f863ecbb5d27f5a02418dd9",
+          "epoch_authenticator_hex" : "8ce61d78d4dc8ff012cb0afd9e53ec9c2ecbe02c74d3418c5ddf8bd32a0b45fbcfe1094f1009f01b0e26432fbe62a0f3",
+          "epoch_secret_hex" : "3968a686775a1edce87e809062f81d7ae13a886f23bb4ed8d669f3129f5bf9d20dc3be318bf48a9dd5bfcb6c5695c75f",
+          "exporter_secret_hex" : "003bc92e6ffc64091f284a60f8dd0b8d6fdacedf56f143e9291e135d2fba777d59d6ed8c578c5ea17aef8a1bdd5cf527",
+          "exporters" : [
+            {
+              "context_hex" : "",
+              "label" : "SFrame 1.0 Base Key",
+              "length" : 32,
+              "out_hex" : "abdfe640b35b09caaea540584c25a4fa1b7188118edbbb91cd76ac655769a0bb"
+            },
+            {
+              "context_hex" : "",
+              "label" : "SFrame 1.0 Base Key",
+              "length" : 16,
+              "out_hex" : "608e307f1285121db64fcd1c69148aa4"
+            },
+            {
+              "context_hex" : "",
+              "label" : "MOQOM direct offer",
+              "length" : 32,
+              "out_hex" : "6ab7d0b41ed4010dbfd50ede4dd4da23e92cfb7947db8ef90ed4470ff9be4ed4"
+            },
+            {
+              "context_hex" : "b2d82180e3a7d0d7638a768eaccf3295fee0999e",
+              "label" : "label",
+              "length" : 64,
+              "out_hex" : "9651e575edcb774211eb500a1625e475177690d841db59b160403e0793f4864a161626a0f82f82395f696963b9540df8a440fcee97cee826beecb3cd8cd7e740"
+            }
+          ],
+          "external_secret_hex" : "8de1a7a4ad46490f576ccb9ba29fbcde98a6753b801e4f28300cd6a1afebc0f8ed4140f53db7bdebf4507d505c3aab8c",
+          "group_context_hex" : "0001f0aa10ce48185b5939c71eaef9220bbd10e1040000000000000003309fc1db866f6e064b21e3790ea23800bde7465aae44303cf91c7f5a86e42d6f08a34d68d110ff057f01c9318ca31d498330c906de7df2ba0fc0b6a2d60a4e6a91e6b2983c639febb0aa3790a831d2893bab941e696df4453da408e7fd7f8eb3f07100",
+          "init_secret_hex" : "4b1a92e0a8007b083b12c9deb969527423f82b02e4d40aa8e5f23a5377956129586b787583dcfce2c4efdfcd164e8956",
+          "joiner_secret_hex" : "014b92835165163530339980ffe3319c6daac453f76ba4f4a6135d8ad7b574a1b590e1972eb6139266969068bdda8650",
+          "membership_key_hex" : "7ab139ad373061a2ccffa388e26a0f030d48577c3684b04bf1a3272a3a872b6cc220de5a27b417c880742f17c8856a31",
+          "resumption_psk_hex" : "71cb7d399e6bbe8661412cbd8ed6a3c5386e869a00379fd2d281761d320a7dfff4e2a571dc7ea0427c1e9c5db71cb36b",
+          "sender_data_secret_hex" : "9707281e6378c92e34b329c075137bba1a8298e7eb1d35ce4a2fdaee7ca5bbbf5640df1a344c3aefadb47c8afffe7dd2",
+          "tree_hash_hex" : "9fc1db866f6e064b21e3790ea23800bde7465aae44303cf91c7f5a86e42d6f08a34d68d110ff057f01c9318ca31d4983",
+          "welcome_secret_hex" : "3e3175ef705da10da72077df3d45742ed8ff475a277a4fd5c279a5e2159e2cbdbed207a627a9ecb430f38e0cfc794062"
+        }
+      ],
+      "group_id_hex" : "ce48185b5939c71eaef9220bbd10e104",
+      "initial_init_secret_hex" : "857891ee95d2474cb94cfb9d8c0373e7196608a3fa5987120d58585164803a87abac16bef8b872f8ae92fbd7b018f20e",
+      "name" : "suite-f0aa"
+    }
+  ],
+  "description" : "RFC 9420 §8 key schedule in suite 0xF0AA over four chained epochs: the GroupContext encoding (no extensions), every epoch secret, the next init secret, and MLS-Exporter, including the RFC 9605 §5.2 SFrame base key. PSK secret is the all-zero default.",
+  "library" : "moqom-mls",
+  "source" : "Generated by MoqomMLS (Swift, CryptoKit): Tests/MoqomMLSTests/VectorGenerator.swift"
+}

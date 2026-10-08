@@ -1,6 +1,7 @@
 [package]
 name = "moqom-mls"
 version = "0.1.0"
+description = "The MOQOM subset of MLS (RFC 9420): post-quantum key packages, Welcome, commits, exporter and audience envelopes"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -8,3 +9,9 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+aws-lc-rs = { workspace = true }
+aws-lc-sys = "0.45"
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
