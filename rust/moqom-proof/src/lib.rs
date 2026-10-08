@@ -15,6 +15,161 @@
 //!
 //! [`Prover`] makes proofs; [`Checker`] checks them against a caller-supplied
 //! [`NonceStore`]. See `docs/moqom-proof.md` for the wire format.
+//!
+//! # Proving and checking
+//!
+//! A device proves it holds the key its token names, and a relay checks the
+//! proof against its own certificate and spends the nonce.
+//!
+//! ```
+//! use std::time::{Duration, SystemTime};
+//!
+//! use aws_lc_rs::digest::{SHA256, digest};
+//! use moqom_proof::{Algorithm, Checker, Error, MemoryNonceStore, Prover, nonce};
+//!
+//! # fn main() -> Result<(), Error> {
+//! // On the device.
+//! let device = Prover::generate(Algorithm::MlDsa65)?;
+//! let jkt = device.thumbprint().to_owned(); // the control plane puts this in cnf.jkt
+//! let token = b"eyJhbGciOiJNTC1EU0EtNjUi...";
+//! let relay_certificate = digest(&SHA256, b"the relay's leaf certificate, DER");
+//! let now = SystemTime::now();
+//! let proof = device.prove(token, relay_certificate.as_ref(), &nonce()?, now)?;
+//!
+//! // On the relay.
+//! let checker = Checker::new(MemoryNonceStore::default());
+//! let expiry = now + Duration::from_secs(15 * 60);
+//! let check = || checker.check(&proof, token, Some(relay_certificate.as_ref()), &jkt, now, expiry);
+//! assert_eq!(check(), Ok(()));
+//! assert_eq!(check(), Err(Error::Replayed));
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Storing a device key
+//!
+//! [`Prover::to_pkcs8`] stores an ML-DSA-65 key as its seed, and
+//! [`Prover::from_pkcs8`] loads it again with the same thumbprint.
+//!
+//! ```
+//! use moqom_proof::{Algorithm, Error, Prover};
+//!
+//! # fn main() -> Result<(), Error> {
+//! let device = Prover::generate(Algorithm::MlDsa65)?;
+//! let stored = device.to_pkcs8()?;
+//! let loaded = Prover::from_pkcs8(&stored)?;
+//! assert_eq!(loaded.algorithm(), Algorithm::MlDsa65);
+//! assert_eq!(loaded.thumbprint(), device.thumbprint());
+//!
+//! let from_seed = Prover::ml_dsa_65_from_seed(&[7; 32])?;
+//! assert_eq!(from_seed.thumbprint(), "e6Z96eT_vmFBoPYfx8wJ1B6r6stkERsYhS4iadvZec4");
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Refusals
+//!
+//! Each refusal names the check that failed.
+//!
+//! ```
+//! use std::time::{Duration, SystemTime};
+//!
+//! use aws_lc_rs::digest::{SHA256, digest};
+//! use moqom_proof::{Algorithm, Checker, Error, MemoryNonceStore, Prover, nonce};
+//!
+//! # fn main() -> Result<(), Error> {
+//! let device = Prover::generate(Algorithm::MlDsa65)?;
+//! let stranger = Prover::generate(Algorithm::MlDsa65)?;
+//! let token = b"eyJhbGciOiJNTC1EU0EtNjUi...";
+//! let relay = digest(&SHA256, b"relay A's leaf certificate");
+//! let other = digest(&SHA256, b"relay B's leaf certificate");
+//! let now = SystemTime::now();
+//! let expiry = now + Duration::from_secs(15 * 60);
+//! let checker = Checker::new(MemoryNonceStore::default());
+//! let check = |proof: &[u8]| {
+//!     checker.check(proof, token, Some(relay.as_ref()), device.thumbprint(), now, expiry)
+//! };
+//!
+//! let proof = device.prove(b"another token", relay.as_ref(), &nonce()?, now)?;
+//! assert_eq!(check(&proof), Err(Error::WrongToken));
+//! let proof = device.prove(token, other.as_ref(), &nonce()?, now)?;
+//! assert_eq!(check(&proof), Err(Error::WrongCertificate));
+//! let proof = stranger.prove(token, relay.as_ref(), &nonce()?, now)?;
+//! assert_eq!(check(&proof), Err(Error::WrongKey));
+//! let ten_minutes_ago = now - Duration::from_secs(10 * 60);
+//! let proof = device.prove(token, relay.as_ref(), &nonce()?, ten_minutes_ago)?;
+//! assert_eq!(check(&proof), Err(Error::Expired));
+//! assert_eq!(Error::Expired.class(), "expired");
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # ES256 during rollover
+//!
+//! An ES256 key from an older SDK is accepted by default and refused by a
+//! checker limited to ML-DSA-65.
+//!
+//! ```
+//! use std::time::{Duration, SystemTime};
+//!
+//! use aws_lc_rs::digest::{SHA256, digest};
+//! use moqom_proof::{Algorithm, Checker, Error, MemoryNonceStore, Prover, nonce};
+//!
+//! # fn main() -> Result<(), Error> {
+//! let older = Prover::generate(Algorithm::Es256)?;
+//! let token = b"eyJhbGciOiJNTC1EU0EtNjUi...";
+//! let relay = digest(&SHA256, b"the relay's leaf certificate, DER");
+//! let now = SystemTime::now();
+//! let expiry = now + Duration::from_secs(15 * 60);
+//! let proof = older.prove(token, relay.as_ref(), &nonce()?, now)?;
+//!
+//! let both = Checker::new(MemoryNonceStore::default());
+//! let strict = Checker::new(MemoryNonceStore::default()).with_algorithms(&[Algorithm::MlDsa65]);
+//! let thumbprint = older.thumbprint();
+//! assert_eq!(both.check(&proof, token, Some(relay.as_ref()), thumbprint, now, expiry), Ok(()));
+//! assert_eq!(
+//!     strict.check(&proof, token, Some(relay.as_ref()), thumbprint, now, expiry),
+//!     Err(Error::Unsupported)
+//! );
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Sharing a nonce store
+//!
+//! Checkers that share a store share what has been spent, so a proof accepted
+//! on one connection is refused on every other. [`NonceStore`] is implemented
+//! for `Arc<S>`.
+//!
+//! ```
+//! use std::sync::Arc;
+//! use std::time::{Duration, SystemTime};
+//!
+//! use aws_lc_rs::digest::{SHA256, digest};
+//! use moqom_proof::{Algorithm, Checker, Error, MemoryNonceStore, Prover, nonce};
+//!
+//! # fn main() -> Result<(), Error> {
+//! let store = Arc::new(MemoryNonceStore::default());
+//! let first = Checker::new(Arc::clone(&store));
+//! let second = Checker::new(Arc::clone(&store));
+//!
+//! let device = Prover::generate(Algorithm::MlDsa65)?;
+//! let token = b"eyJhbGciOiJNTC1EU0EtNjUi...";
+//! let relay = digest(&SHA256, b"the relay's leaf certificate, DER");
+//! let now = SystemTime::now();
+//! let expiry = now + Duration::from_secs(15 * 60);
+//! let proof = device.prove(token, relay.as_ref(), &nonce()?, now)?;
+//!
+//! let jkt = device.thumbprint();
+//! assert_eq!(first.check(&proof, token, Some(relay.as_ref()), jkt, now, expiry), Ok(()));
+//! assert_eq!(
+//!     second.check(&proof, token, Some(relay.as_ref()), jkt, now, expiry),
+//!     Err(Error::Replayed)
+//! );
+//! assert_eq!(store.remembered(), 1);
+//! # Ok(())
+//! # }
+//! ```
 
 mod checker;
 mod error;

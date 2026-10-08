@@ -2,6 +2,13 @@
 name = "moqom-proof"
 version = "0.1.0"
 description = "Device-bound, single-use, certificate-bound proof of possession for MoQ sessions: ML-DSA-65 and ES256"
+readme = "README.md"
+keywords = ["moq", "dpop", "proof-of-possession", "ml-dsa", "post-quantum"]
+categories = ["cryptography", "authentication"]
+documentation = "https://docs.rs/moqom-proof"
+homepage = "https://moqom.dev/security/libraries/proof/"
+# The shared vectors live at the repository root, outside the package.
+exclude = ["tests/vectors.rs"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
