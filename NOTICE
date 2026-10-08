@@ -1,0 +1,15 @@
+moqom-security — MOQOM's token, proof, SFrame and MLS libraries
+Copyright 2026 Elliott Wave LLC. All rights reserved except as licensed below.
+
+Licensed under the Apache License, Version 2.0; see LICENSE.
+
+"MOQOM" and the MOQOM logo are trademarks of Elliott Wave LLC. The Apache
+License grants no right to use them (Section 6).
+
+Elliott Wave LLC has patent applications pending. Section 3 of the Apache
+License governs what patent rights accompany this software, and no other patent
+license is granted, expressly or by implication.
+
+These libraries compose the cryptographic primitives of each platform
+(CryptoKit on Apple platforms, the Go standard library, and aws-lc-rs in Rust)
+and implement no primitive of their own.
