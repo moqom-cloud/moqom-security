@@ -19,6 +19,74 @@
 //!
 //! The same library exists in Go (`github.com/moqom-cloud/moqom-security/go/sframe`)
 //! and Swift (`MoqomSFrame`), and all three pass the vectors in `vectors/sframe`.
+//!
+//! # Sealing and opening an object
+//!
+//! In a room the base key is exported from the MLS group under
+//! [`MLS_EXPORTER_LABEL`]. Both ends derive the same key from it.
+//!
+//! ```
+//! use moqom_sframe::{CipherSuite, Error, Key, Metadata, Property, Receiver, Sender, mls_key_id};
+//!
+//! # fn main() -> Result<(), Error> {
+//! let base_key = [0x2a; 32];
+//! let key_id = mls_key_id(3, 14); // leaf 3, epoch 14
+//! let sender = Sender::new(Key::new(key_id, &base_key, CipherSuite::Aes256GcmSha512));
+//! let receiver = Receiver::default();
+//! receiver.add(Key::new(key_id, &base_key, CipherSuite::Aes256GcmSha512));
+//!
+//! let metadata = Metadata {
+//!     group: 5,
+//!     object: 2,
+//!     priority: 64,
+//!     properties: vec![
+//!         Property::integer(0x78, 1_000_000), // capture time
+//!         Property::integer(0x7a, 1),         // temporal layer
+//!     ],
+//! };
+//! let object = sender.protect_object(b"frame", &metadata)?;
+//! assert_eq!(object[..2], [0x80, 0x3e]); // KID 62, counter 0
+//! assert_eq!(object.len(), 2 + 5 + 16);
+//!
+//! // A relay that relabels the object's group, or flips a bit, is caught.
+//! let moved = Metadata { group: 6, ..metadata.clone() };
+//! assert_eq!(receiver.unprotect_object(&object, &moved), Err(Error::AuthenticationFailure));
+//! let mut damaged = object.clone();
+//! *damaged.last_mut().unwrap() ^= 0x01;
+//! assert_eq!(receiver.unprotect_object(&damaged, &metadata), Err(Error::AuthenticationFailure));
+//!
+//! // Neither failure used up the counter, so the real object still opens.
+//! assert_eq!(receiver.unprotect_object(&object, &metadata)?, b"frame");
+//! assert_eq!(
+//!     receiver.unprotect_object(&object, &metadata),
+//!     Err(Error::Replay { counter: 0 })
+//! );
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # The replay window
+//!
+//! Objects may arrive out of order. With the default window of 1,024, a
+//! counter up to 1,023 behind the highest seen is accepted once.
+//!
+//! ```
+//! use moqom_sframe::{CipherSuite, Context, Error, Metadata};
+//!
+//! # fn main() -> Result<(), Error> {
+//! let context = Context::new(CipherSuite::Aes128GcmSha256, 1, &[0x2a; 16]);
+//! let metadata = Metadata { group: 0, object: 0, priority: 128, properties: vec![] };
+//! let objects = (0..=1024u32)
+//!     .map(|counter| context.seal(&counter.to_be_bytes(), &metadata))
+//!     .collect::<Result<Vec<_>, _>>()?;
+//!
+//! context.open(&objects[1024], &metadata)?;
+//! context.open(&objects[1], &metadata)?; // 1,023 behind: accepted
+//! assert_eq!(context.open(&objects[0], &metadata), Err(Error::Replay { counter: 0 })); // 1,024 behind
+//! assert_eq!(context.open(&objects[1], &metadata), Err(Error::Replay { counter: 1 })); // already seen
+//! # Ok(())
+//! # }
+//! ```
 
 mod context;
 mod header;
