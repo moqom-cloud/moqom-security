@@ -42,7 +42,8 @@ public struct Verifier: Sendable {
 
         guard let headerBytes = Self.decode(headerSegment) else { throw .malformed("header is not base64url") }
         guard headerBytes.first(where: { !" \t\r\n".utf8.contains($0) }) == UInt8(ascii: "{"),
-              let header = try? JSONDecoder().decode(Header.self, from: headerBytes)
+              let header = try? JSONDecoder().decode(Header.self, from: headerBytes),
+              UniqueMembers.check(headerBytes)
         else { throw .malformed("header is not JSON") }
         guard header.typ == TokenLimits.type else { throw .unsupported }
         guard let key = keys[header.kid] else { throw .unknownKey }

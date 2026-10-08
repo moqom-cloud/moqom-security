@@ -104,6 +104,11 @@ Parsing rules:
 - Both segments must be JSON objects.
 - Member names are case-sensitive, and a `null` member is refused rather than
   read as absent.
+- No object in the header or the claims, at any depth, may name a member twice
+  (`header is not JSON`, `claims are not JSON`). Parsers disagree about which
+  of a duplicate wins, so a token with one would mean different things to
+  different verifiers. Names are compared after unescaping (`s\u0075b` is
+  `sub`) and byte for byte, without Unicode normalization.
 - Unknown top-level claims are ignored, so the issuer can add one without first
   upgrading every verifier.
 - An unknown member of `moqt` is malformed. A grant field added later is as
@@ -263,7 +268,7 @@ build would write. The generator uses fixed seeds and
 `now = 1800000000`. The top-level `keys` array lists each key's ID, algorithm,
 seed and public key.
 
-- `verify.json` has 51 cases. Each gives a token, a time, an issuer, a tenant
+- `verify.json` has 62 cases. Each gives a token, a time, an issuer, a tenant
   and a key set, together with either the claims it yields or the error class.
   They cover:
   - valid ML-DSA-65 tokens and the legacy Ed25519 ones;
@@ -277,6 +282,8 @@ seed and public key.
   - issuer and tenant pins;
   - incomplete identities;
   - grant strictness;
+  - duplicate member names in the header, the claims, `cnf`, the grant, an
+    unknown claim and an array, including one spelled with an escape;
   - every malformed reason, including non-canonical base64url and non-object
     JSON.
 - `sign.json` has 13 cases: five valid claim sets with their exact signing

@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 )
@@ -141,6 +143,9 @@ func (v *Verifier) check(claims Claims, now time.Time) error {
 // since one this build does not know (`crit`, `jku`, `x5u`) may change what the
 // signature means.
 func decodeHeader(data []byte, into *header) error {
+	if err := uniqueMembers(data); err != nil {
+		return err
+	}
 	fields, err := object(data)
 	if err != nil {
 		return err
@@ -155,6 +160,9 @@ func decodeHeader(data []byte, into *header) error {
 // would not see a "Sub" as `sub`, so neither may this one.
 func decodeClaims(data []byte) (Claims, error) {
 	var claims Claims
+	if err := uniqueMembers(data); err != nil {
+		return Claims{}, err
+	}
 	fields, err := object(data)
 	if err != nil {
 		return Claims{}, err
@@ -199,6 +207,53 @@ func object(data []byte) (map[string]json.RawMessage, error) {
 		return nil, err
 	}
 	return fields, nil
+}
+
+// uniqueMembers refuses JSON in which any object, at any depth, names a member
+// twice. encoding/json keeps the last and other parsers the first, so a token
+// with a duplicate would mean different things to different verifiers. Names
+// are compared after unescaping, so "sub" and "s\u0075b" are the same.
+func uniqueMembers(data []byte) error {
+	type level struct {
+		names   map[string]bool
+		wantKey bool
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	var stack []*level
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if token == json.Delim('}') || token == json.Delim(']') {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		var top *level
+		if len(stack) > 0 {
+			top = stack[len(stack)-1]
+		}
+		if top != nil && top.names != nil {
+			if top.wantKey {
+				name, _ := token.(string)
+				if top.names[name] {
+					return fmt.Errorf("member %q appears twice", name)
+				}
+				top.names[name], top.wantKey = true, false
+				continue
+			}
+			top.wantKey = true
+		}
+		switch token {
+		case json.Delim('{'):
+			stack = append(stack, &level{names: map[string]bool{}, wantKey: true})
+		case json.Delim('['):
+			stack = append(stack, &level{})
+		}
+	}
 }
 
 // fieldsInto decodes each known member into its target. A null is refused

@@ -284,6 +284,34 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 	nonCanonical := parts[0][:len(parts[0])-1] + string(alphabet[strings.IndexByte(alphabet, parts[0][len(parts[0])-1])|1])
 
+	base := claimsJSON(baseClaims(), nil)
+	withClaims := func(name, old, replacement string) string {
+		if !strings.Contains(base, old) {
+			t.Fatalf("%s: %q is not in the claims", name, old)
+		}
+		return keys.signRaw(current, mldsaHeader, rawSegment(strings.Replace(base, old, replacement, 1)))
+	}
+	duplicate := func(name, old, replacement string) verifyCase {
+		return refused(name, withClaims(name, old, replacement), "malformed")
+	}
+	duplicateHeader := func(name, header string) verifyCase {
+		return refused(name, keys.signRaw(current, rawSegment(header), parts[1]), "malformed")
+	}
+	cases = append(cases,
+		duplicate("duplicate claim with another value", `{"aud":`, `{"sub":"eve","aud":`),
+		duplicate("duplicate claim with the same value", `{"aud":`, `{"sub":"ada","aud":`),
+		duplicate("duplicate claim spelled with an escape", `{"aud":`, `{"s\u0075b":"eve","aud":`),
+		duplicate("duplicate member in cnf", `"cnf":{"jkt":`, `"cnf":{"jkt":"AAAA","jkt":`),
+		duplicate("duplicate member in the grant", `"moqt":{`, `"moqt":{"room":"room-1",`),
+		duplicate("duplicate member in an unknown claim", `{"aud":`, `{"later":{"a":1,"a":2},"aud":`),
+		duplicate("duplicate member in an object inside an array", `{"aud":`, `{"later":[{"a":1},{"b":[{"c":1,"c":1}]}],"aud":`),
+		duplicateHeader("duplicate header parameter", `{"alg":"ML-DSA-65","kid":"`+current+`","kid":"`+current+`","typ":"MOQT"}`),
+		duplicateHeader("duplicate header alg with another value", `{"alg":"EdDSA","alg":"ML-DSA-65","kid":"`+current+`","typ":"MOQT"}`),
+		duplicateHeader("duplicate header parameter spelled with an escape", `{"alg":"ML-DSA-65","k\u0069d":"`+current+`","kid":"`+current+`","typ":"MOQT"}`),
+		valid("member names that differ only in case or sit in sibling objects",
+			withClaims("siblings", `{"aud":`, `{"later":[{"a":1},{"a":1}],"Later":{"a":{"a":1}},"aud":`), baseClaims()),
+	)
+
 	cases = append(cases,
 		refused("unknown kid", mint("outsider", baseClaims()), "unknown_key"),
 		refused("tampered payload", parts[0]+"."+rawSegment(claimsJSON(tamperedClaims, nil))+"."+parts[2], "bad_signature"),

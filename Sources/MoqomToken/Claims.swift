@@ -104,7 +104,8 @@ public struct Claims: Hashable, Sendable {
     /// Claims from their JSON, read as a verifier reads them.
     public init(json: Data) throws(TokenError) {
         guard json.first(where: { !" \t\r\n".utf8.contains($0) }) == UInt8(ascii: "{"),
-              let claims = try? JSONDecoder().decode(Wire.self, from: json)
+              let claims = try? JSONDecoder().decode(Wire.self, from: json),
+              UniqueMembers.check(json)
         else { throw .malformed("claims are not JSON") }
         self = claims.claims
     }

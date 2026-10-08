@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Elliott Wave LLC
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
 
 use crate::claims::Header;
 use crate::{CLOCK_SKEW, Claims, Error, MAX_LIFETIME, MAX_TOKEN_BYTES, PublicKey, TOKEN_TYPE};
@@ -173,7 +174,68 @@ fn decode<T: for<'de> Deserialize<'de>>(segment: &[u8]) -> Result<T, Undecodable
     if decoded.trim_ascii_start().first() != Some(&b'{') {
         return Err(Undecodable::Json);
     }
+    serde_json::from_slice::<UniqueMembers>(&decoded).map_err(|_| Undecodable::Json)?;
     serde_json::from_slice(&decoded).map_err(|_| Undecodable::Json)
+}
+
+/// JSON in which no object, at any depth, names a member twice. `serde_json`
+/// keeps the last of a duplicate it does not model and other parsers the first,
+/// so a token with one would mean different things to different verifiers.
+/// Names are compared after unescaping, so `sub` and `s\u0075b` are the same.
+struct UniqueMembers;
+
+impl<'de> Deserialize<'de> for UniqueMembers {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(UniqueMembers)
+    }
+}
+
+impl<'de> Visitor<'de> for UniqueMembers {
+    type Value = Self;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("JSON with no duplicate member names")
+    }
+
+    fn visit_bool<E>(self, _: bool) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn visit_i64<E>(self, _: i64) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn visit_u64<E>(self, _: u64) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn visit_f64<E>(self, _: f64) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn visit_str<E>(self, _: &str) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn visit_unit<E>(self) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self, A::Error> {
+        while seq.next_element::<Self>()?.is_some() {}
+        Ok(self)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self, A::Error> {
+        let mut names = HashSet::new();
+        while let Some(name) = map.next_key::<String>()? {
+            if !names.insert(name) {
+                return Err(de::Error::custom("duplicate member"));
+            }
+            map.next_value::<Self>()?;
+        }
+        Ok(self)
+    }
 }
 
 fn unix(time: SystemTime) -> i64 {
