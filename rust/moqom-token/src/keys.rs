@@ -5,10 +5,11 @@ use aws_lc_rs::signature::{
     ED25519, KeyPair, ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair, UnparsedPublicKey,
     VerificationAlgorithm,
 };
-use aws_lc_rs::{digest, error};
+use aws_lc_rs::{digest, error, rand};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
+use zeroize::Zeroizing;
 
 use crate::{Claims, Error};
 
@@ -150,7 +151,9 @@ impl PublicKey {
         jwks.into_iter()
             .map(|jwk| {
                 let (algorithm, field, name) = match (jwk.kty.as_str(), jwk.crv.as_str()) {
-                    ("AKP", _) if jwk.alg == "ML-DSA-65" => (Algorithm::MlDsa65, &jwk.public, "pub"),
+                    ("AKP", _) if jwk.alg == "ML-DSA-65" => {
+                        (Algorithm::MlDsa65, &jwk.public, "pub")
+                    }
                     ("OKP", "Ed25519") => (Algorithm::Ed25519, &jwk.x, "x"),
                     _ => {
                         return Err(format!(
@@ -184,6 +187,7 @@ impl PublicKey {
 /// Mints tokens with an ML-DSA-65 key.
 pub struct Signer {
     pair: PqdsaKeyPair,
+    seed: Zeroizing<[u8; 32]>,
     id: String,
 }
 
@@ -204,7 +208,22 @@ impl Signer {
     pub fn from_seed(seed: &[u8; 32]) -> Result<Self, error::KeyRejected> {
         let pair = PqdsaKeyPair::from_seed(&ML_DSA_65_SIGNING, seed)?;
         let id = key_id(pair.public_key().as_ref());
-        Ok(Self { pair, id })
+        Ok(Self {
+            pair,
+            seed: Zeroizing::new(*seed),
+            id,
+        })
+    }
+
+    /// A new ML-DSA-65 key from a random seed, named by [`key_id`] of its public
+    /// half. Store [`Signer::seed`] to load the same key again.
+    ///
+    /// # Errors
+    /// The system random number generator failed.
+    pub fn generate() -> Result<Self, error::Unspecified> {
+        let mut seed = Zeroizing::new([0u8; 32]);
+        rand::fill(seed.as_mut())?;
+        Self::from_seed(&seed).map_err(|_| error::Unspecified)
     }
 
     /// The same key under another `kid`, for a deployment that names its keys
@@ -212,9 +231,15 @@ impl Signer {
     #[must_use]
     pub fn with_id(self, id: impl Into<String>) -> Self {
         Self {
-            pair: self.pair,
             id: id.into(),
+            ..self
         }
+    }
+
+    /// The 32-byte FIPS 204 seed, for storing the key.
+    #[must_use]
+    pub fn seed(&self) -> &[u8; 32] {
+        &self.seed
     }
 
     /// The `kid` tokens from this signer carry.

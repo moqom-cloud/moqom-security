@@ -2,6 +2,11 @@
 name = "moqom-token"
 version = "0.1.0"
 description = "Mint and verify MOQOM join tokens: compact JWS signed with ML-DSA-65, Ed25519 verify-only"
+readme = "README.md"
+keywords = ["moq", "jws", "ml-dsa", "post-quantum", "token"]
+categories = ["cryptography", "authentication"]
+documentation = "https://docs.rs/moqom-token"
+homepage = "https://moqom.dev/security/libraries/token/"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,3 +19,4 @@ base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+zeroize = { workspace = true }

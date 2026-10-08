@@ -84,8 +84,8 @@ impl Verifier {
             return Err(Error::Malformed("expected three segments"));
         };
 
-        let header: Header = decode(header_segment)
-            .map_err(|bad| Error::Malformed(bad.describe("header")))?;
+        let header: Header =
+            decode(header_segment).map_err(|bad| Error::Malformed(bad.describe("header")))?;
         if header.typ != TOKEN_TYPE {
             return Err(Error::Unsupported);
         }
@@ -107,8 +107,8 @@ impl Verifier {
             return Err(Error::BadSignature);
         }
 
-        let claims: Claims = decode(claims_segment)
-            .map_err(|bad| Error::Malformed(bad.describe("claims")))?;
+        let claims: Claims =
+            decode(claims_segment).map_err(|bad| Error::Malformed(bad.describe("claims")))?;
         self.check(&claims, now)?;
         Ok(claims)
     }

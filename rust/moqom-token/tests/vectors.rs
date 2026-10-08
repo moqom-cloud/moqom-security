@@ -63,7 +63,9 @@ fn at(seconds: u64) -> SystemTime {
 fn read<C: for<'de> Deserialize<'de>>(
     name: &str,
 ) -> (Vec<C>, HashMap<String, PublicKey>, HashMap<String, Signer>) {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../vectors/token").join(name);
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../vectors/token")
+        .join(name);
     let file: File<C> =
         serde_json::from_slice(&std::fs::read(&path).expect("the vectors")).expect("JSON");
     let mut public = HashMap::new();
@@ -76,8 +78,15 @@ fn read<C: for<'de> Deserialize<'de>>(
         }
         match key.alg.as_str() {
             "ML-DSA-65" => {
-                let signer = Signer::from_seed(&seed).expect("seed").with_id(key.kid.clone());
-                assert_eq!(signer.public_key().bytes, raw, "{}: seed and public key", key.kid);
+                let signer = Signer::from_seed(&seed)
+                    .expect("seed")
+                    .with_id(key.kid.clone());
+                assert_eq!(
+                    signer.public_key().bytes,
+                    raw,
+                    "{}: seed and public key",
+                    key.kid
+                );
                 public.insert(key.kid.clone(), PublicKey::ml_dsa_65(key.kid.clone(), raw));
                 signers.insert(key.kid, signer);
             }
@@ -120,7 +129,12 @@ fn every_sign_vector() {
         let signer = &signers[&case.kid];
         let signed = signer.sign(&case.claims);
         if let Some(class) = &case.error {
-            assert_eq!(signed.map_err(|e| e.class()).err(), Some(class.as_str()), "{}", case.name);
+            assert_eq!(
+                signed.map_err(|e| e.class()).err(),
+                Some(class.as_str()),
+                "{}",
+                case.name
+            );
             continue;
         }
         let signed = signed.unwrap_or_else(|e| panic!("{}: {e}", case.name));
@@ -130,7 +144,12 @@ fn every_sign_vector() {
         let verifier = Verifier::new("", [public[&case.kid].clone()]);
         let now = at(u64::try_from(case.claims.iat).expect("after the epoch"));
         for token in [case.token.as_deref().expect("a token"), signed.as_str()] {
-            assert_eq!(verifier.verify(token.as_bytes(), now), Ok(case.claims.clone()), "{}", case.name);
+            assert_eq!(
+                verifier.verify(token.as_bytes(), now),
+                Ok(case.claims.clone()),
+                "{}",
+                case.name
+            );
         }
     }
 }
@@ -139,8 +158,12 @@ fn every_sign_vector() {
 fn a_jwk_set_round_trips() {
     let signer = Signer::from_seed(&[1; 32]).expect("seed");
     let legacy = PublicKey::ed25519("old", vec![7; 32]);
-    let document = serde_json::json!({ "keys": [signer.public_key().jwk(), legacy.jwk()] }).to_string();
-    assert_eq!(PublicKey::parse_set(&document), Ok(vec![signer.public_key(), legacy]));
+    let document =
+        serde_json::json!({ "keys": [signer.public_key().jwk(), legacy.jwk()] }).to_string();
+    assert_eq!(
+        PublicKey::parse_set(&document),
+        Ok(vec![signer.public_key(), legacy])
+    );
     assert_eq!(signer.public_key().algorithm, Algorithm::MlDsa65);
 
     for refused in [

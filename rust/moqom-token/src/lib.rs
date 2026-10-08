@@ -16,6 +16,84 @@
 //!
 //! The same library exists in Go (`github.com/moqom-cloud/moqom-security/go/token`)
 //! and Swift (`MoqomToken`), and all three pass the vectors in `vectors/token`.
+//!
+//! # Minting and verifying
+//!
+//! ```
+//! use std::time::{SystemTime, UNIX_EPOCH};
+//!
+//! use moqom_token::{Claims, Confirmation, Grant, PublicKey, Signer, Verifier};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // Generate a key once and keep its 32-byte seed in your secret store.
+//! let seed = *Signer::generate()?.seed();
+//!
+//! // Load it under the key ID your JWK set publishes.
+//! let signer = Signer::from_seed(&seed)?.with_id("2026-10");
+//!
+//! let now = SystemTime::now();
+//! let iat = i64::try_from(now.duration_since(UNIX_EPOCH)?.as_secs())?;
+//! let jws = signer.sign(&Claims {
+//!     iss: "https://api.example.com".into(),
+//!     sub: "ada".into(),
+//!     tenant: "acme".into(),
+//!     jti: "c6c1f2d0".into(),
+//!     iat,
+//!     exp: iat + 600,
+//!     // The RFC 7638 thumbprint of the device's key, from moqom-proof.
+//!     cnf: Confirmation { jkt: "MpXqvQAmv7Y3Kk9dHnJpLwRtUvXyZaBcDeFgHiJkLmM".into() },
+//!     grant: Grant { room: "room-42".into(), publish: 3, owner: true, ..Grant::default() },
+//!     ..Claims::default()
+//! })?;
+//!
+//! // A relay reads the published JWK set and verifies.
+//! let document = format!(r#"{{"keys":[{}]}}"#, signer.public_key().jwk());
+//! let keys = PublicKey::parse_set(&document)?;
+//! let verifier = Verifier::new("https://api.example.com", keys).for_tenant("acme");
+//! let claims = verifier.verify(jws.as_bytes(), SystemTime::now())?;
+//! assert_eq!((claims.sub.as_str(), claims.grant.room.as_str()), ("ada", "room-42"));
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Expired tokens and the wrong key
+//!
+//! ```
+//! use std::time::{Duration, SystemTime, UNIX_EPOCH};
+//!
+//! use moqom_token::{Claims, Confirmation, Error, Signer, Verifier};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let signer = Signer::generate()?;
+//! let now = SystemTime::now();
+//! let iat = i64::try_from(now.duration_since(UNIX_EPOCH)?.as_secs())?;
+//! let jws = signer.sign(&Claims {
+//!     sub: "ada".into(),
+//!     tenant: "acme".into(),
+//!     iat,
+//!     exp: iat + 600,
+//!     cnf: Confirmation { jkt: "MpXqvQAmv7Y3Kk9dHnJpLwRtUvXyZaBcDeFgHiJkLmM".into() },
+//!     ..Claims::default()
+//! })?;
+//! let verifier = Verifier::new("", [signer.public_key()]);
+//!
+//! // Eleven minutes on, the ten-minute token is past its expiry and the 30-second skew.
+//! let later = now + Duration::from_secs(11 * 60);
+//! let expired = verifier.verify(jws.as_bytes(), later).unwrap_err();
+//! assert_eq!((expired, expired.class()), (Error::Expired, "expired"));
+//!
+//! // A verifier that does not hold the token's key ID.
+//! let other = Signer::generate()?;
+//! let unknown = Verifier::new("", [other.public_key()]).verify(jws.as_bytes(), now);
+//! assert_eq!(unknown, Err(Error::UnknownKey));
+//!
+//! // Another key published under the same key ID.
+//! let impostor = other.with_id(signer.id()).public_key();
+//! let forged = Verifier::new("", [impostor]).verify(jws.as_bytes(), now);
+//! assert_eq!(forged, Err(Error::BadSignature));
+//! # Ok(())
+//! # }
+//! ```
 
 mod claims;
 mod keys;
