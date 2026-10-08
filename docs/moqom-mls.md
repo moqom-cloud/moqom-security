@@ -83,7 +83,8 @@ Nothing here implements a primitive:
 - Go uses `crypto/hpke`, `crypto/mlkem`, `crypto/mldsa`, `crypto/hkdf` and
   `crypto/ed25519`.
 - Rust composes aws-lc-rs. RFC 9180 HPKE is written in `src/hpke.rs`, and
-  ML-KEM keys load from their seed through AWS-LC's PKCS#8 seed form.
+  ML-KEM keys load from their seed through AWS-LC's PKCS#8 seed form (see
+  [Unsafe code](#unsafe-code)).
 
 The two hand-written HPKE compositions, Swift's and Rust's, are held to Go's
 `crypto/hpke` by the vectors. Each language opens ciphertexts the other two
@@ -359,6 +360,51 @@ MOQOM's own simplifications, the same in all three languages:
 Ordering is the delivery service's job: it accepts the first commit for each
 epoch and rejects the rest. A committer keeps `PendingCommit.next` until the
 service accepts the commit.
+
+## Unsafe code
+
+`rust/moqom-mls/src/mlkem.rs` holds the crate's only `unsafe` code. aws-lc-rs
+(1.18.1, the latest release) builds an ML-KEM-768 decapsulation key only from
+the expanded 2,400-byte key, and has no safe way in from the 64-byte seed that
+every language here stores. So the seed is wrapped in a fixed 86-byte PKCS#8
+PrivateKeyInfo, RFC 9935's `[0]` seed form, and passed to AWS-LC through
+`aws-lc-sys`:
+
+1. `EVP_parse_private_key` parses it from a `CBS` over the buffer. Any byte
+   left unread is refused. AWS-LC checks that the seed is 64 bytes and runs
+   FIPS 203's KeyGen on it.
+2. `EVP_PKEY_get_raw_private_key` and `EVP_PKEY_get_raw_public_key` copy out
+   the 2,400-byte decapsulation key and the 1,184-byte encapsulation key. A
+   call that fails, or writes any other length, is refused.
+3. The expanded key goes to aws-lc-rs's `kem::DecapsulationKey::new`, and the
+   `EVP_PKEY` is freed.
+
+Why this is sound:
+
+- **Pointers and lengths.** The `CBS` borrows the buffer for the one call;
+  AWS-LC reads at most its length and copies what it keeps. Each output call
+  gets a buffer and its exact length, and AWS-LC writes at most that many
+  bytes.
+- **Null and errors.** A null key from the parser is an error, and every
+  return value is checked before anything is used.
+- **Freeing.** The `EVP_PKEY` is held by a guard that frees it on drop, so it
+  is freed exactly once on every path, early returns included. Nothing else
+  frees it.
+- **Threads.** The key never leaves the function, so no other thread can see
+  it. The AWS-LC functions used touch no shared mutable state (the error queue
+  is thread-local), and `aws_lc_rs::init()` runs first.
+- **Secrets.** The DER buffer, which holds the seed, and the expanded key are
+  `Zeroizing` and wiped on drop. AWS-LC wipes its own copies when they are
+  freed, because `OPENSSL_free` cleanses.
+- **Linking.** `aws-lc-sys` must be the version aws-lc-rs links (0.45 for
+  aws-lc-rs 1.18). If they drift apart, Cargo builds two separately prefixed
+  copies of AWS-LC. That is still sound, since only bytes pass between them,
+  but it doubles the build, so bump them together.
+
+The unit tests in `mlkem.rs` cover seeds of the wrong length, the all-zero and
+all-`0xff` seeds, distinct seeds giving distinct keys, and trailing or missing
+DER bytes. The vectors check that each seed gives Swift's and Go's public key
+and opens their ciphertexts.
 
 ## Tests
 

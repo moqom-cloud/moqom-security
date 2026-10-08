@@ -12,6 +12,7 @@ repository.workspace = true
 aws-lc-rs = { workspace = true }
 aws-lc-sys = "0.45"
 thiserror = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

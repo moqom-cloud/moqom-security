@@ -124,6 +124,7 @@ dependencies = [
  "aws-lc-sys",
  "serde_json",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]

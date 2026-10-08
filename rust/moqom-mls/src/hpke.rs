@@ -265,10 +265,8 @@ impl Kem {
     fn decapsulate(self, enc: &[u8], private: &[u8]) -> Result<Vec<u8>> {
         match self {
             Self::MlKem768 => {
-                let (expanded, _) =
+                let (key, _) =
                     crate::mlkem::from_seed(private).map_err(|_| Error::DecryptionFailed)?;
-                let key = kem::DecapsulationKey::new(&kem::ML_KEM_768, &expanded)
-                    .map_err(|_| Error::DecryptionFailed)?;
                 let shared = key
                     .decapsulate(enc.into())
                     .map_err(|_| Error::DecryptionFailed)?;
