@@ -52,11 +52,11 @@ struct MLSGroupTests {
         #expect(Set(alice.roster.map(\.member.identityString)) == ["alice/a", "bob/b", "carol/c"])
 
         let sender = SFrameSender(key: alice.sframeKey(for: alice.ownLeaf, suite: .aes256GcmSha512))
-        let sealed = try sender.protect(Data("frame".utf8), metadata: Data([1]))
+        let sealed = try sender.protectRaw(Data("frame".utf8), aad: Data([1]))
         for member in [bob, carol] {
             let receiver = SFrameReceiver()
             for key in member.sframeKeys(suite: .aes256GcmSha512) { receiver.add(key) }
-            #expect(try receiver.unprotect(sealed, metadata: Data([1])) == Data("frame".utf8))
+            #expect(try receiver.unprotectRaw(sealed, aad: Data([1])) == Data("frame".utf8))
         }
     }
 
@@ -84,10 +84,10 @@ struct MLSGroupTests {
         // Everything Bob could still hold is the epoch before. None of it opens
         // a frame from the epoch after.
         let sender = SFrameSender(key: removal.next.sframeKey(for: removal.next.ownLeaf, suite: .aes256GcmSha512))
-        let sealed = try sender.protect(Data("after".utf8))
+        let sealed = try sender.protectRaw(Data("after".utf8), aad: Data())
         let bobReceiver = SFrameReceiver()
         for key in bob.sframeKeys(suite: .aes256GcmSha512) { bobReceiver.add(key) }
-        #expect(throws: SFrameError.self) { _ = try bobReceiver.unprotect(sealed) }
+        #expect(throws: SFrameError.self) { _ = try bobReceiver.unprotectRaw(sealed, aad: Data()) }
         #expect(bob.epochAuthenticator != removal.next.epochAuthenticator)
     }
 
@@ -95,14 +95,14 @@ struct MLSGroupTests {
     func joinerCannotReadHistory(suite: MLSCipherSuite) throws {
         var alice = try MLSGroup.create(groupID: room, bundle: bundle("alice/a", suite))
         let before = alice.sframeKey(for: 0, suite: .aes256GcmSha512)
-        let sealed = try SFrameSender(key: before).protect(Data("history".utf8))
+        let sealed = try SFrameSender(key: before).protectRaw(Data("history".utf8), aad: Data())
         let bob = try bundle("bob/b", suite)
         let add = try alice.commit(adding: [bob.keyPackage])
         alice = add.next
         let joined = try MLSGroup.join(try #require(add.welcome), bundle: bob)
         let receiver = SFrameReceiver()
         for key in joined.sframeKeys(suite: .aes256GcmSha512) { receiver.add(key) }
-        #expect(throws: SFrameError.self) { _ = try receiver.unprotect(sealed) }
+        #expect(throws: SFrameError.self) { _ = try receiver.unprotectRaw(sealed, aad: Data()) }
     }
 
     @Test(
@@ -220,9 +220,9 @@ struct MLSGroupTests {
         let (alice, _, _) = try threeMembers(suite)
         let base = alice.exporter(label: "SFrame 1.0 Base Key", length: 32)
         let sealed = try SFrameSender(key: alice.sframeKey(for: 1, suite: .aes256GcmSha512))
-            .protect(Data("x".utf8))
+            .protectRaw(Data("x".utf8), aad: Data())
         let receiver = SFrameReceiver()
-        receiver.add(SFrameKey(keyID: MLSSFrameKeys.keyID(leaf: 1, epoch: alice.epoch), baseKey: base))
-        #expect(try receiver.unprotect(sealed) == Data("x".utf8))
+        receiver.add(try SFrameKey(keyID: MLSSFrameKeys.keyID(leaf: 1, epoch: alice.epoch), baseKey: base))
+        #expect(try receiver.unprotectRaw(sealed, aad: Data()) == Data("x".utf8))
     }
 }

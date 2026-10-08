@@ -28,6 +28,7 @@ func Example() {
 	receiver.Add(key)
 
 	metadata := sframe.Metadata{
+		Track:    sframe.TrackOf([]string{"moqom", "demo", "alice"}, "video"),
 		Group:    5,
 		Object:   2,
 		Priority: 64,
@@ -42,11 +43,17 @@ func Example() {
 	}
 	fmt.Println("object:", len(object), "bytes, header", hex.EncodeToString(object[:2]))
 
-	// A relay that relabels the object's group, or flips a bit, is caught.
+	// A relay that relabels the object's group, moves it to another track, or
+	// flips a bit, is caught.
 	moved := metadata
 	moved.Group = 6
 	_, err = receiver.UnprotectObject(object, moved)
 	fmt.Println("moved to group 6:", sframe.Class(err))
+
+	moved = metadata
+	moved.Track = sframe.TrackOf([]string{"moqom", "demo", "bob"}, "video")
+	_, err = receiver.UnprotectObject(object, moved)
+	fmt.Println("moved to bob's track:", sframe.Class(err))
 
 	damaged := bytes.Clone(object)
 	damaged[len(damaged)-1] ^= 0x01
@@ -63,6 +70,7 @@ func Example() {
 	// Output:
 	// object: 23 bytes, header 803e
 	// moved to group 6: authentication_failure
+	// moved to bob's track: authentication_failure
 	// one bit flipped: authentication_failure
 	// opened: "frame" <nil>
 	// delivered again: replay
@@ -75,7 +83,10 @@ func Example_replayWindow() {
 	if err != nil {
 		panic(err)
 	}
-	metadata := sframe.Metadata{Group: 0, Priority: 128}
+	metadata := sframe.Metadata{
+		Track:    sframe.TrackOf([]string{"moqom", "demo", "alice"}, "audio"),
+		Priority: 128,
+	}
 
 	objects := make([][]byte, 1025) // counters 0 to 1024
 	for i := range objects {

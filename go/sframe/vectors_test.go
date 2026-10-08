@@ -48,6 +48,10 @@ func unhex(t *testing.T, s string) []byte {
 }
 
 type metadataVector struct {
+	Track struct {
+		NamespaceHex []string `json:"namespace_hex"`
+		NameHex      string   `json:"name_hex"`
+	} `json:"track"`
 	Group      uint64 `json:"group"`
 	Object     uint64 `json:"object"`
 	Priority   uint8  `json:"priority"`
@@ -59,7 +63,10 @@ type metadataVector struct {
 }
 
 func (v metadataVector) metadata(t *testing.T) Metadata {
-	m := Metadata{Group: v.Group, Object: v.Object, Priority: v.Priority}
+	m := Metadata{Track: Track{Name: unhex(t, v.Track.NameHex)}, Group: v.Group, Object: v.Object, Priority: v.Priority}
+	for _, field := range v.Track.NamespaceHex {
+		m.Track.Namespace = append(m.Track.Namespace, unhex(t, field))
+	}
 	for _, p := range v.Properties {
 		if p.Integer != nil {
 			m.Properties = append(m.Properties, IntegerProperty(p.Type, *p.Integer))
@@ -135,7 +142,9 @@ func TestRFC9605(t *testing.T) {
 			if hex.EncodeToString(secret) != c.SFrameSecretHex {
 				t.Errorf("%s: secret %x", c.Name, secret)
 			}
-			key, err := NewKey(c.Kid, unhex(t, c.BaseKeyHex), suite)
+			// Appendix C derives suite 0x0005 keys from a 16-byte base key,
+			// which NewKey refuses.
+			key, err := newKey(c.Kid, unhex(t, c.BaseKeyHex), suite)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -155,7 +164,7 @@ func TestRFC9605(t *testing.T) {
 			}
 			r := NewReceiver(DefaultReplayWindow)
 			r.Add(key)
-			pt, err := r.Unprotect(unhex(t, c.CTHex), unhex(t, c.MetadataHex))
+			pt, err := r.UnprotectRaw(unhex(t, c.CTHex), unhex(t, c.MetadataHex))
 			expect(t, c.Name, pt, err, c.PTHex, "")
 		default:
 			t.Errorf("%s: unexpected kind %s", c.Name, c.Kind)

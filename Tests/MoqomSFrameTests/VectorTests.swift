@@ -23,7 +23,7 @@ private func expect(_ result: Result<Data, SFrameError>, pt: String?, error: Str
         #expect(error == nil, "\(name): opened, expected \(error ?? "")")
         #expect(plaintext.hexString == pt, "\(name)")
     case let .failure(failure):
-        #expect(errorClass(failure) == error, "\(name): \(failure)")
+        #expect(failure.errorClass == error, "\(name): \(failure)")
     }
 }
 
@@ -57,7 +57,7 @@ struct RFC9605VectorTests {
             let kid = try #require(vector.kid), ctr = try #require(vector.ctr)
             let base = hex(try #require(vector.base_key_hex))
             let metadata = hex(try #require(vector.metadata_hex))
-            let key = SFrameKey(keyID: kid, baseKey: base, suite: suite)
+            let key = SFrameKey(keyID: kid, uncheckedBaseKey: base, suite: suite)
 
             #expect(SFrameKey.label("SFrame 1.0 Secret key ", keyID: kid, suite: suite).hexString == vector.sframe_key_label_hex)
             #expect(SFrameKey.label("SFrame 1.0 Secret salt ", keyID: kid, suite: suite).hexString == vector.sframe_salt_label_hex)
@@ -72,7 +72,7 @@ struct RFC9605VectorTests {
 
             let receiver = SFrameReceiver()
             receiver.add(key)
-            #expect(try receiver.unprotect(hex(try #require(vector.ct_hex)), metadata: metadata).hexString == vector.pt_hex)
+            #expect(try receiver.unprotectRaw(hex(try #require(vector.ct_hex)), aad: metadata).hexString == vector.pt_hex)
         }
     }
 
@@ -104,7 +104,7 @@ struct MoQVectorTests {
             let result = outcome { () throws(SFrameError) in try vector.metadata.metadata.encoded() }
             switch result {
             case let .success(bytes): #expect(bytes.hexString == vector.encoded_hex, "\(vector.name)")
-            case let .failure(error): #expect(errorClass(error) == vector.error, "\(vector.name)")
+            case let .failure(error): #expect(error.errorClass == vector.error, "\(vector.name)")
             }
             #expect((vector.encoded_hex == nil) != (vector.error == nil))
         }
@@ -122,7 +122,7 @@ struct MoQVectorTests {
     @Test("nonce.json")
     func nonces() throws {
         for vector in try loadVectors("nonce.json", as: NonceCase.self).cases {
-            let key = SFrameKey(keyID: vector.kid, baseKey: hex(vector.base_key_hex), suite: try suite(vector.cipher_suite))
+            let key = try SFrameKey(keyID: vector.kid, baseKey: hex(vector.base_key_hex), suite: try suite(vector.cipher_suite))
             #expect(key.key.withUnsafeBytes { Data($0) }.hexString == vector.sframe_key_hex, "\(vector.name)")
             #expect(key.salt.hexString == vector.sframe_salt_hex)
             #expect(key.nonce(counter: vector.ctr).hexString == vector.nonce_hex, "\(vector.name)")
@@ -134,8 +134,8 @@ struct MoQVectorTests {
     func seals() throws {
         for vector in try loadVectors("seal-open.json", as: SealCase.self).cases {
             let suite = try suite(vector.cipher_suite)
-            let sealer = SFrameContext(suite: suite, keyID: vector.kid, baseKey: hex(vector.base_key_hex))
-            let opener = SFrameContext(suite: suite, keyID: vector.kid, baseKey: hex(vector.base_key_hex))
+            let sealer = try SFrameContext(suite: suite, keyID: vector.kid, baseKey: hex(vector.base_key_hex))
+            let opener = try SFrameContext(suite: suite, keyID: vector.kid, baseKey: hex(vector.base_key_hex))
             let metadata = vector.metadata.metadata
             for seal in vector.seals {
                 #expect(try sealer.seal(hex(seal.pt_hex), metadata: metadata).hexString == seal.object_hex, "\(vector.name)")
@@ -147,7 +147,7 @@ struct MoQVectorTests {
     @Test("open.json")
     func opens() throws {
         for vector in try loadVectors("open.json", as: OpenCase.self).cases {
-            let context = SFrameContext(suite: try suite(vector.cipher_suite), keyID: vector.kid, baseKey: hex(vector.base_key_hex))
+            let context = try SFrameContext(suite: try suite(vector.cipher_suite), keyID: vector.kid, baseKey: hex(vector.base_key_hex))
             let metadata = vector.metadata.metadata
             let result = outcome { () throws(SFrameError) in try context.open(hex(vector.object_hex), metadata: metadata) }
             expect(result, pt: vector.pt_hex, error: vector.error, vector.name)
@@ -157,7 +157,7 @@ struct MoQVectorTests {
     @Test("replay.json")
     func replays() throws {
         for vector in try loadVectors("replay.json", as: ReplayCase.self).cases {
-            let context = SFrameContext(
+            let context = try SFrameContext(
                 suite: try suite(vector.cipher_suite),
                 keyID: vector.kid,
                 baseKey: hex(vector.base_key_hex),

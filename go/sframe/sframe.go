@@ -23,6 +23,9 @@ const (
 	AES128GCMSHA256 CipherSuite = 0x0004
 	// AES256GCMSHA512 is AES-256-GCM with SHA-512. 16-byte tag. The default.
 	AES256GCMSHA512 CipherSuite = 0x0005
+
+	// DefaultCipherSuite is the suite Swift and Rust use when none is given.
+	DefaultCipherSuite = AES256GCMSHA512
 )
 
 // KeyLength is the AEAD key length, which is also the length of an
@@ -157,8 +160,21 @@ type Key struct {
 
 // NewKey derives per RFC 9605 §4.4.2. The KID and suite are in the derivation
 // labels, so a ciphertext made under one KID or suite never authenticates
-// under another.
+// under another. baseKey must be the suite's KeyLength bytes, the length an
+// MLS exporter gives it, or NewKey returns ErrInvalidBaseKey.
 func NewKey(keyID uint64, baseKey []byte, suite CipherSuite) (*Key, error) {
+	if suite.KeyLength() == 0 {
+		return nil, ErrUnsupportedSuite
+	}
+	if len(baseKey) != suite.KeyLength() {
+		return nil, ErrInvalidBaseKey
+	}
+	return newKey(keyID, baseKey, suite)
+}
+
+// newKey derives without checking the base key's length, for RFC 9605's
+// Appendix C, which derives suite 0x0005 keys from a 16-byte base key.
+func newKey(keyID uint64, baseKey []byte, suite CipherSuite) (*Key, error) {
 	if suite.KeyLength() == 0 {
 		return nil, ErrUnsupportedSuite
 	}
@@ -226,7 +242,12 @@ func (k *Key) open(ciphertext []byte, counter uint64, aad []byte) ([]byte, error
 // choose one, because a repeated GCM nonce leaks the XOR of two plaintexts and
 // the authentication subkey.
 //
-// One sender per (key, media stream). Two senders under one key will collide.
+// One sender per key. Two senders under one key will collide. The counter is
+// held in memory and starts at 0 for every sender and every key, and a key is
+// fixed by its base key, KID and suite, so deriving the same one again — in a
+// second sender, on a second device, or in the same process after a restart —
+// repeats nonces. Every new sender needs a base key or KID that has never
+// sealed before: a new MLS epoch, or a fresh random KID.
 type Sender struct {
 	mu      sync.Mutex
 	current *Key
@@ -261,17 +282,20 @@ func (s *Sender) Rekey(key *Key) {
 // ClearKey goes back to refusing to encrypt.
 func (s *Sender) ClearKey() { s.Rekey(nil) }
 
-// ProtectObject encrypts one MoQ object, binding its metadata into the tag.
+// ProtectObject encrypts one MoQ object, binding its track, position and
+// properties into the tag.
 func (s *Sender) ProtectObject(plaintext []byte, metadata Metadata) ([]byte, error) {
 	aad, err := metadata.Encode()
 	if err != nil {
 		return nil, err
 	}
-	return s.Protect(plaintext, aad)
+	return s.ProtectRaw(plaintext, aad)
 }
 
-// Protect encrypts one frame. metadata is authenticated and not encrypted.
-func (s *Sender) Protect(plaintext, metadata []byte) ([]byte, error) {
+// ProtectRaw encrypts one frame with arbitrary AAD after the header, as RFC
+// 9605's own vectors do. Not for MoQ objects, which bind their track through
+// ProtectObject.
+func (s *Sender) ProtectRaw(plaintext, metadata []byte) ([]byte, error) {
 	s.mu.Lock()
 	key := s.current
 	if key == nil {
@@ -311,7 +335,9 @@ func NewReceiver(window uint64) *Receiver {
 
 // SetResolver installs a function asked for a key the receiver does not hold,
 // for schemes where a receiver derives a sender's key rather than being sent
-// it. A key it returns is added as though by Add.
+// it. A key it returns is added as though by Add, once an object has
+// authenticated under it; a key for any other KID is ignored. It is called
+// without the receiver's lock held, possibly concurrently.
 func (r *Receiver) SetResolver(resolve func(keyID uint64) *Key) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -345,44 +371,50 @@ func (r *Receiver) KeyIDs() []uint64 {
 	return ids
 }
 
-// UnprotectObject decrypts one MoQ object against the metadata it arrived with.
+// UnprotectObject decrypts one MoQ object against the track, position and
+// properties it arrived with.
 func (r *Receiver) UnprotectObject(data []byte, metadata Metadata) ([]byte, error) {
 	aad, err := metadata.Encode()
 	if err != nil {
 		return nil, err
 	}
-	return r.Unprotect(data, aad)
+	return r.UnprotectRaw(data, aad)
 }
 
-// Unprotect decrypts one frame.
-func (r *Receiver) Unprotect(data, metadata []byte) ([]byte, error) {
+// UnprotectRaw decrypts one frame sealed by ProtectRaw.
+func (r *Receiver) UnprotectRaw(data, metadata []byte) ([]byte, error) {
 	header, length, err := ReadHeader(data)
 	if err != nil {
 		return nil, err
 	}
+	kid := header.KeyID
 
 	r.mu.Lock()
-	if r.keys[header.KeyID] == nil && r.resolver != nil {
-		resolve := r.resolver
-		r.mu.Unlock()
-		resolved := resolve(header.KeyID)
-		r.mu.Lock()
-		if resolved != nil && resolved.keyID == header.KeyID && r.keys[header.KeyID] == nil {
-			r.keys[header.KeyID] = resolved
-			r.seen[header.KeyID] = newReplayWindow(r.window)
-		}
-	}
-	key := r.keys[header.KeyID]
+	key, window := r.keys[kid], r.seen[kid]
+	var resolve func(uint64) *Key
 	if key == nil {
-		r.mu.Unlock()
-		return nil, &UnknownKeyError{KeyID: header.KeyID}
-	}
-	window := r.seen[header.KeyID]
-	if !window.accepts(header.Counter) {
-		r.mu.Unlock()
-		return nil, &ReplayError{Counter: header.Counter}
+		resolve = r.resolver
 	}
 	r.mu.Unlock()
+
+	// A resolved key is held aside until an object authenticates under it, so
+	// objects under made-up KIDs cannot fill the receiver with keys.
+	resolved := false
+	if resolve != nil {
+		if candidate := resolve(kid); candidate != nil && candidate.keyID == kid {
+			key, window, resolved = candidate, newReplayWindow(r.window), true
+		}
+	}
+	if key == nil {
+		return nil, &UnknownKeyError{KeyID: kid}
+	}
+
+	r.mu.Lock()
+	fresh := window.accepts(header.Counter)
+	r.mu.Unlock()
+	if !fresh {
+		return nil, &ReplayError{Counter: header.Counter}
+	}
 
 	aad := append(data[:length:length], metadata...)
 	plaintext, err := key.open(data[length:], header.Counter, aad)
@@ -391,12 +423,19 @@ func (r *Receiver) Unprotect(data, metadata []byte) ([]byte, error) {
 	}
 
 	// Recorded only after authentication, so a forged object cannot knock out
-	// the real one behind it.
+	// the real one behind it. Checked again, because another copy of this
+	// object may have opened meanwhile.
 	r.mu.Lock()
-	if r.seen[header.KeyID] == window {
-		window.record(header.Counter)
+	defer r.mu.Unlock()
+	if resolved && r.keys[kid] == nil {
+		r.keys[kid], r.seen[kid] = key, window
 	}
-	r.mu.Unlock()
+	if current := r.seen[kid]; current != nil && (current == window || resolved) {
+		if !current.accepts(header.Counter) {
+			return nil, &ReplayError{Counter: header.Counter}
+		}
+		current.record(header.Counter)
+	}
 	return plaintext, nil
 }
 

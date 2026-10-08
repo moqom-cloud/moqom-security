@@ -47,16 +47,17 @@ extension Data {
     var hexString: String { map { String(format: "%02x", $0) }.joined() }
 }
 
-/// The error class a vector names, per docs/moqom-sframe.md.
-func errorClass(_ error: SFrameError) -> String {
-    switch error {
-    case .malformedHeader: "malformed_header"
-    case .unknownKey: "unknown_key"
-    case .authenticationFailure: "authentication_failure"
-    case .replay: "replay"
-    case .counterExhausted: "counter_exhausted"
-    case .noKey: "no_key"
-    case .invalidMetadata: "invalid_metadata"
+struct TrackVector: Codable, Sendable {
+    var namespace_hex: [String]
+    var name_hex: String
+
+    init(_ track: SFrameTrack) {
+        namespace_hex = track.namespace.map(\.hexString)
+        name_hex = track.name.hexString
+    }
+
+    var track: SFrameTrack {
+        SFrameTrack(namespace: namespace_hex.map(hex), name: hex(name_hex))
     }
 }
 
@@ -67,12 +68,14 @@ struct MetadataVector: Codable, Sendable {
         var bytes_hex: String?
     }
 
+    var track: TrackVector
     var group: UInt64
     var object: UInt64
     var priority: UInt8
     var properties: [Property]
 
     init(_ metadata: SFrameMetadata) {
+        track = TrackVector(metadata.track)
         group = metadata.group
         object = metadata.object
         priority = metadata.priority
@@ -86,6 +89,7 @@ struct MetadataVector: Codable, Sendable {
 
     var metadata: SFrameMetadata {
         SFrameMetadata(
+            track: track.track,
             group: group,
             object: object,
             priority: priority,

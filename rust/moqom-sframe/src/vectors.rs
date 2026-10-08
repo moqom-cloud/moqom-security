@@ -13,7 +13,8 @@ use serde_json::Value;
 
 use crate::key::label;
 use crate::{
-    CipherSuite, Context, Error, Header, Key, Metadata, Property, Receiver, epoch_tag, mls_key_id,
+    CipherSuite, Context, Error, Header, Key, Metadata, Property, Receiver, Track, epoch_tag,
+    mls_key_id,
 };
 
 fn cases(name: &str) -> Vec<Value> {
@@ -48,7 +49,17 @@ fn suite(case: &Value) -> CipherSuite {
 }
 
 fn metadata(value: &Value) -> Metadata {
+    let track = &value["track"];
     Metadata {
+        track: Track {
+            namespace: track["namespace_hex"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(hex)
+                .collect(),
+            name: hex(&track["name_hex"]),
+        },
         group: u64_of(&value["group"]),
         object: u64_of(&value["object"]),
         priority: u8::try_from(u64_of(&value["priority"])).unwrap(),
@@ -129,7 +140,9 @@ fn rfc9605() {
                     case["sframe_secret_hex"].as_str().unwrap(),
                     "{name}"
                 );
-                let key = Key::new(kid, &base, suite);
+                // Appendix C derives suite 0x0005 keys from a 16-byte base key,
+                // which Key::new refuses.
+                let key = Key::unchecked(kid, &base, suite);
                 assert_eq!(
                     to_hex(&key.raw),
                     case["sframe_key_hex"].as_str().unwrap(),
@@ -162,7 +175,7 @@ fn rfc9605() {
                 receiver.add(key);
                 check(
                     name,
-                    receiver.unprotect(&hex(&case["ct_hex"]), &hex(&case["metadata_hex"])),
+                    receiver.unprotect_raw(&hex(&case["ct_hex"]), &hex(&case["metadata_hex"])),
                     &case,
                 );
             }
@@ -216,7 +229,7 @@ fn nonce_vectors() {
     for case in cases("nonce.json") {
         let name = case["name"].as_str().unwrap();
         let (kid, ctr) = (u64_of(&case["kid"]), u64_of(&case["ctr"]));
-        let key = Key::new(kid, &hex(&case["base_key_hex"]), suite(&case));
+        let key = Key::new(kid, &hex(&case["base_key_hex"]), suite(&case)).unwrap();
         assert_eq!(
             to_hex(&key.raw),
             case["sframe_key_hex"].as_str().unwrap(),
@@ -251,8 +264,8 @@ fn seal_open_vectors() {
         let name = case["name"].as_str().unwrap();
         let base = hex(&case["base_key_hex"]);
         let kid = u64_of(&case["kid"]);
-        let sealer = Context::new(suite(&case), kid, &base);
-        let opener = Context::new(suite(&case), kid, &base);
+        let sealer = Context::new(suite(&case), kid, &base).unwrap();
+        let opener = Context::new(suite(&case), kid, &base).unwrap();
         let metadata = metadata(&case["metadata"]);
         for seal in case["seals"].as_array().unwrap() {
             let object = sealer.seal(&hex(&seal["pt_hex"]), &metadata).unwrap();
@@ -278,7 +291,8 @@ fn open_vectors() {
             suite(&case),
             u64_of(&case["kid"]),
             &hex(&case["base_key_hex"]),
-        );
+        )
+        .unwrap();
         check(
             name,
             context.open(&hex(&case["object_hex"]), &metadata(&case["metadata"])),
@@ -296,7 +310,8 @@ fn replay_vectors() {
             u64_of(&case["kid"]),
             &hex(&case["base_key_hex"]),
             u64_of(&case["replay_window"]),
-        );
+        )
+        .unwrap();
         let metadata = metadata(&case["metadata"]);
         for (index, step) in case["steps"].as_array().unwrap().iter().enumerate() {
             check(

@@ -24,8 +24,13 @@ private func payload(_ count: Int, seed: UInt8 = 0) -> Data {
     Data((0 ..< count).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ Int(seed)) })
 }
 
+/// One participant's video track, and the same track name under another's.
+private let alice = SFrameTrack(namespace: ["moqom", "demo", "alice"], name: "video")
+private let bob = SFrameTrack(namespace: ["moqom", "demo", "bob"], name: "video")
+
 /// The shape MOQOM's video objects have: capture time and temporal layer.
 private let video = SFrameMetadata(
+    track: alice,
     group: 5,
     object: 2,
     priority: 64,
@@ -34,13 +39,18 @@ private let video = SFrameMetadata(
 
 /// A keyframe carrying its decoder configuration and a catalog disclosure.
 private let keyframe = SFrameMetadata(
+    track: alice,
     group: 300,
     object: 0,
     priority: 0,
     properties: [.bytes(0x79, payload(40, seed: 9)), .integer(0x78, 33_366), .bytes(0x7D, Data("video/720p".utf8))]
 )
 
-private let bare = SFrameMetadata(group: 0, object: 0, priority: 128)
+private func track(fields: Int) -> SFrameTrack {
+    SFrameTrack(namespace: (0 ..< fields).map { Data([UInt8($0)]) }, name: Data("video".utf8))
+}
+
+private let bare = SFrameMetadata(track: alice, group: 0, object: 0, priority: 128)
 
 private func sealed(_ key: SFrameKey, counter: UInt64, _ plaintext: Data, _ metadata: SFrameMetadata) throws -> Data {
     let header = SFrameHeader(keyID: key.keyID, counter: counter).encoded
@@ -52,7 +62,7 @@ enum SFrameVectorGenerator {
         try [
             ("metadata.json", encodeVectors(metadata())),
             ("kid.json", encodeVectors(keyIDs())),
-            ("nonce.json", encodeVectors(nonces())),
+            ("nonce.json", encodeVectors(try nonces())),
             ("seal-open.json", encodeVectors(seals())),
             ("open.json", encodeVectors(opens())),
             ("replay.json", encodeVectors(replays())),
@@ -62,32 +72,38 @@ enum SFrameVectorGenerator {
     static func metadata() throws -> VectorFile<MetadataCase> {
         let limit = SFrameMetadata.varIntMaximum
         let valid: [(String, SFrameMetadata)] = [
-            ("bare", SFrameMetadata(group: 0, object: 0, priority: 0)),
+            ("bare", SFrameMetadata(track: alice, group: 0, object: 0, priority: 0)),
             ("video", video),
             ("keyframe", keyframe),
-            ("varint-1-byte-max", SFrameMetadata(group: 63, object: 63, priority: 255)),
-            ("varint-2-byte", SFrameMetadata(group: 64, object: 16383, priority: 1)),
-            ("varint-4-byte", SFrameMetadata(group: 16384, object: 1_073_741_823, priority: 2)),
-            ("varint-8-byte", SFrameMetadata(group: 1_073_741_824, object: limit, priority: 3)),
+            ("varint-1-byte-max", SFrameMetadata(track: alice, group: 63, object: 63, priority: 255)),
+            ("varint-2-byte", SFrameMetadata(track: alice, group: 64, object: 16383, priority: 1)),
+            ("varint-4-byte", SFrameMetadata(track: alice, group: 16384, object: 1_073_741_823, priority: 2)),
+            ("varint-8-byte", SFrameMetadata(track: alice, group: 1_073_741_824, object: limit, priority: 3)),
             (
                 "properties-sorted-by-type",
-                SFrameMetadata(group: 1, object: 1, priority: 1, properties: [.integer(0x7A, 2), .integer(0x78, 9), .integer(0x7C, 1)])
+                SFrameMetadata(track: alice, group: 1, object: 1, priority: 1, properties: [.integer(0x7A, 2), .integer(0x78, 9), .integer(0x7C, 1)])
             ),
             (
                 "repeated-type-keeps-order",
-                SFrameMetadata(group: 1, object: 2, priority: 3, properties: [.bytes(0x7F, Data([0xBB])), .integer(0x78, 4), .bytes(0x7F, Data([0xAA]))])
+                SFrameMetadata(track: alice, group: 1, object: 2, priority: 3, properties: [.bytes(0x7F, Data([0xBB])), .integer(0x78, 4), .bytes(0x7F, Data([0xAA]))])
             ),
-            ("empty-bytes-property", SFrameMetadata(group: 1, object: 0, priority: 0, properties: [.bytes(0x79, Data())])),
-            ("bytes-property-2-byte-length", SFrameMetadata(group: 2, object: 0, priority: 0, properties: [.bytes(0x7D, payload(300))])),
-            ("large-type-delta", SFrameMetadata(group: 0, object: 0, priority: 0, properties: [.integer(0x10, 1), .integer(limit - 1, limit)])),
+            ("empty-bytes-property", SFrameMetadata(track: alice, group: 1, object: 0, priority: 0, properties: [.bytes(0x79, Data())])),
+            ("bytes-property-2-byte-length", SFrameMetadata(track: alice, group: 2, object: 0, priority: 0, properties: [.bytes(0x7D, payload(300))])),
+            ("large-type-delta", SFrameMetadata(track: alice, group: 0, object: 0, priority: 0, properties: [.integer(0x10, 1), .integer(limit - 1, limit)])),
+            ("track-empty-field-and-name", SFrameMetadata(track: SFrameTrack(namespace: [Data()], name: Data()), group: 0, object: 0, priority: 0)),
+            ("track-32-namespace-fields", SFrameMetadata(track: track(fields: 32), group: 0, object: 0, priority: 0)),
+            ("track-at-length-limit", SFrameMetadata(track: SFrameTrack(namespace: [payload(4000)], name: payload(96, seed: 1)), group: 0, object: 0, priority: 0)),
         ]
         let invalid: [(String, SFrameMetadata)] = [
-            ("even-type-with-bytes", SFrameMetadata(group: 0, object: 0, priority: 0, properties: [.bytes(0x78, Data([1]))])),
-            ("odd-type-with-integer", SFrameMetadata(group: 0, object: 0, priority: 0, properties: [.integer(0x79, 1)])),
-            ("group-beyond-varint", SFrameMetadata(group: limit + 1, object: 0, priority: 0)),
-            ("object-beyond-varint", SFrameMetadata(group: 0, object: UInt64.max, priority: 0)),
-            ("integer-beyond-varint", SFrameMetadata(group: 0, object: 0, priority: 0, properties: [.integer(0x78, limit + 1)])),
-            ("type-beyond-varint", SFrameMetadata(group: 0, object: 0, priority: 0, properties: [.integer(limit + 1, 0)])),
+            ("even-type-with-bytes", SFrameMetadata(track: alice, group: 0, object: 0, priority: 0, properties: [.bytes(0x78, Data([1]))])),
+            ("odd-type-with-integer", SFrameMetadata(track: alice, group: 0, object: 0, priority: 0, properties: [.integer(0x79, 1)])),
+            ("group-beyond-varint", SFrameMetadata(track: alice, group: limit + 1, object: 0, priority: 0)),
+            ("object-beyond-varint", SFrameMetadata(track: alice, group: 0, object: UInt64.max, priority: 0)),
+            ("integer-beyond-varint", SFrameMetadata(track: alice, group: 0, object: 0, priority: 0, properties: [.integer(0x78, limit + 1)])),
+            ("type-beyond-varint", SFrameMetadata(track: alice, group: 0, object: 0, priority: 0, properties: [.integer(limit + 1, 0)])),
+            ("track-without-namespace", SFrameMetadata(track: SFrameTrack(namespace: [Data](), name: Data("video".utf8)), group: 0, object: 0, priority: 0)),
+            ("track-33-namespace-fields", SFrameMetadata(track: track(fields: 33), group: 0, object: 0, priority: 0)),
+            ("track-over-length-limit", SFrameMetadata(track: SFrameTrack(namespace: [payload(4000)], name: payload(97, seed: 1)), group: 0, object: 0, priority: 0)),
         ]
         var cases = try valid.map {
             MetadataCase(name: $0.0, metadata: MetadataVector($0.1), encoded_hex: try $0.1.encoded().hexString)
@@ -125,12 +141,12 @@ enum SFrameVectorGenerator {
         )
     }
 
-    static func nonces() -> VectorFile<NonceCase> {
+    static func nonces() throws -> VectorFile<NonceCase> {
         let counters: [UInt64] = [0, 1, 7, 8, 0xFF, 0x100, 0xFFFF_FFFF, 0x1_0000_0000, UInt64.max - 1, UInt64.max]
         var cases: [NonceCase] = []
         for suite in SFrameCipherSuite.allCases {
             for kid: UInt64 in [0x3E, 0xFFFF_FFFF_FFFF_FFFF] {
-                let key = SFrameKey(keyID: kid, baseKey: baseKey(suite), suite: suite)
+                let key = try SFrameKey(keyID: kid, baseKey: baseKey(suite), suite: suite)
                 for ctr in counters {
                     cases.append(NonceCase(
                         name: String(format: "%04x-kid-%llx-ctr-%llx", suite.rawValue, kid, ctr),
@@ -164,7 +180,7 @@ enum SFrameVectorGenerator {
                 ("counter-crosses-into-extended", 2, video, (0 ..< 10).map { payload(8, seed: UInt8($0)) }),
             ]
             for (name, kid, metadata, plaintexts) in shapes {
-                let context = SFrameContext(suite: suite, keyID: kid, baseKey: baseKey(suite))
+                let context = try SFrameContext(suite: suite, keyID: kid, baseKey: baseKey(suite))
                 let seals = try plaintexts.map {
                     SealCase.Seal(pt_hex: $0.hexString, object_hex: try context.seal($0, metadata: metadata).hexString)
                 }
@@ -189,7 +205,7 @@ enum SFrameVectorGenerator {
         var cases: [OpenCase] = []
         for suite in SFrameCipherSuite.allCases {
             let kid: UInt64 = 0x3E
-            let key = SFrameKey(keyID: kid, baseKey: baseKey(suite), suite: suite)
+            let key = try SFrameKey(keyID: kid, baseKey: baseKey(suite), suite: suite)
             let plaintext = payload(32, seed: 5)
             let object = try sealed(key, counter: 0x4567, plaintext, keyframe)
             let headerLength = try SFrameHeader.read(from: object).1
@@ -237,6 +253,24 @@ enum SFrameVectorGenerator {
             changed.properties[1] = .integer(0x7A, 33_366)
             add("property-type-changed", object, changed, error: "authentication_failure")
             changed = keyframe
+            changed.track.name = Data("audio".utf8)
+            add("track-name-changed", object, changed, error: "authentication_failure")
+            changed = keyframe
+            changed.track = bob
+            add("track-namespace-changed", object, changed, error: "authentication_failure")
+            changed = keyframe
+            changed.track.namespace.append(Data("backstage".utf8))
+            add("track-namespace-field-added", object, changed, error: "authentication_failure")
+            changed = keyframe
+            changed.track.namespace = [Data("moqom".utf8), Data("demoalice".utf8)]
+            add("track-namespace-split-differently", object, changed, error: "authentication_failure")
+            changed = keyframe
+            changed.track = SFrameTrack(namespace: [Data](), name: Data("video".utf8))
+            add("track-missing", object, changed, error: "invalid_metadata")
+            changed = keyframe
+            changed.track = bob
+            add("sealed-on-another-track", try sealed(key, counter: 0x4567, plaintext, changed), error: "authentication_failure")
+            changed = keyframe
             changed.properties.reverse()
             add("property-order-is-canonical", object, changed)
 
@@ -265,14 +299,14 @@ enum SFrameVectorGenerator {
             add(
                 "invalid-metadata",
                 object,
-                SFrameMetadata(group: 0, object: 0, priority: 0, properties: [.integer(0x79, 1)]),
+                SFrameMetadata(track: alice, group: 0, object: 0, priority: 0, properties: [.integer(0x79, 1)]),
                 error: "invalid_metadata"
             )
 
             let other: SFrameCipherSuite = suite == .aes256GcmSha512 ? .aes128GcmSha256 : .aes256GcmSha512
-            let otherKey = SFrameKey(keyID: kid, baseKey: baseKey(suite), suite: other)
+            let otherKey = SFrameKey(keyID: kid, uncheckedBaseKey: baseKey(suite), suite: other)
             add("sealed-under-other-suite", try sealed(otherKey, counter: 0x4567, plaintext, keyframe), error: "authentication_failure")
-            let strangerKey = SFrameKey(keyID: kid, baseKey: Data(repeating: 0xEE, count: suite.keyLength), suite: suite)
+            let strangerKey = try SFrameKey(keyID: kid, baseKey: Data(repeating: 0xEE, count: suite.keyLength), suite: suite)
             add("sealed-under-other-base-key", try sealed(strangerKey, counter: 0x4567, plaintext, keyframe), error: "authentication_failure")
 
             // KID 0x3E and CTR 3 in more bytes than they need. The tag covers the
@@ -330,7 +364,7 @@ enum SFrameVectorGenerator {
         var cases: [ReplayCase] = []
         for suite in SFrameCipherSuite.allCases {
             let kid: UInt64 = 9
-            let key = SFrameKey(keyID: kid, baseKey: baseKey(suite), suite: suite)
+            let key = try SFrameKey(keyID: kid, baseKey: baseKey(suite), suite: suite)
             for (name, window, script) in sequences {
                 let steps = try script.map { step, expect in
                     switch step {

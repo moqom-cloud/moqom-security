@@ -6,6 +6,10 @@ package sframe
 // Context seals and opens MoQ objects under one key. Sealing owns the counter
 // and opening keeps the replay window, as Sender and Receiver do; a room with
 // a key per sender uses those directly.
+//
+// The counter starts at 0 for every new context. Never create two contexts
+// that seal under the same base key and KID, including one after a restart;
+// see Sender.
 type Context struct {
 	key      *Key
 	sender   *Sender

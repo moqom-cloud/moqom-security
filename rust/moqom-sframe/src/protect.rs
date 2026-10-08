@@ -10,7 +10,12 @@ use crate::{Error, Header, Key, Metadata};
 /// because a repeated GCM nonce leaks the XOR of two plaintexts and the
 /// authentication subkey.
 ///
-/// One sender per (key, media stream). Two senders under one key will collide.
+/// One sender per key. Two senders under one key will collide. The counter is
+/// held in memory and starts at 0 for every sender and every key, and a key is
+/// fixed by its base key, KID and suite, so deriving the same one again — in a
+/// second sender, on a second device, or in the same process after a restart —
+/// repeats nonces. Every new sender needs a base key or KID that has never
+/// sealed before: a new MLS epoch, or a fresh random KID.
 #[derive(Debug, Default)]
 pub struct Sender {
     state: Mutex<(Option<Arc<Key>>, u64)>,
@@ -56,13 +61,24 @@ impl Sender {
         *self.state.lock().unwrap_or_else(PoisonError::into_inner) = (None, 0);
     }
 
-    /// Encrypt one MoQ object, binding its metadata into the tag.
+    /// Encrypt one MoQ object, binding its track, position and properties into
+    /// the tag.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidMetadata`], [`Error::NoKey`] or [`Error::CounterExhausted`].
     pub fn protect_object(&self, plaintext: &[u8], metadata: &Metadata) -> Result<Vec<u8>, Error> {
-        self.protect(plaintext, &metadata.encode()?)
+        self.protect_raw(plaintext, &metadata.encode()?)
     }
 
-    /// Encrypt one frame. `metadata` is authenticated and not encrypted.
-    pub fn protect(&self, plaintext: &[u8], metadata: &[u8]) -> Result<Vec<u8>, Error> {
+    /// Encrypt one frame with arbitrary AAD after the header, as RFC 9605's own
+    /// vectors do. Not for MoQ objects, which bind their track through
+    /// [`Sender::protect_object`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoKey`] or [`Error::CounterExhausted`].
+    pub fn protect_raw(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, Error> {
         let (key, issued) = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let key = state.0.clone().ok_or(Error::NoKey)?;
@@ -78,9 +94,9 @@ impl Sender {
             counter: issued,
         }
         .encode();
-        let mut aad = out.clone();
-        aad.extend_from_slice(metadata);
-        out.extend(key.seal(plaintext, issued, &aad)?);
+        let mut full = out.clone();
+        full.extend_from_slice(aad);
+        out.extend(key.seal(plaintext, issued, &full)?);
         Ok(out)
     }
 }
@@ -132,13 +148,17 @@ impl Receiver {
 
     /// Asked for a key the receiver does not hold, for schemes where a receiver
     /// derives a sender's key rather than being sent it. A key it returns is
-    /// added as though by [`Receiver::add`].
-    pub fn set_resolver(
-        &self,
-        resolve: Option<impl Fn(u64) -> Option<Key> + Send + Sync + 'static>,
-    ) {
+    /// added as though by [`Receiver::add`], once an object has authenticated
+    /// under it; a key for any other KID is ignored. Called without the
+    /// receiver's lock held, possibly concurrently.
+    pub fn set_resolver(&self, resolve: impl Fn(u64) -> Option<Key> + Send + Sync + 'static) {
         *self.resolver.lock().unwrap_or_else(PoisonError::into_inner) =
-            resolve.map(|r| Arc::new(Box::new(r) as Resolver));
+            Some(Arc::new(Box::new(resolve) as Resolver));
+    }
+
+    /// Remove the resolver.
+    pub fn clear_resolver(&self) {
+        *self.resolver.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 
     /// Load a key, resetting its replay window.
@@ -169,72 +189,88 @@ impl Receiver {
             .collect()
     }
 
-    /// Decrypt one MoQ object against the metadata it arrived with.
+    /// Decrypt one MoQ object against the track, position and properties it
+    /// arrived with.
+    ///
+    /// # Errors
+    ///
+    /// Any [`Error`] but [`Error::NoKey`], [`Error::CounterExhausted`] and the
+    /// key errors, in the order the checks run: metadata, header, key, replay
+    /// window, tag.
     pub fn unprotect_object(&self, data: &[u8], metadata: &Metadata) -> Result<Vec<u8>, Error> {
-        self.unprotect(data, &metadata.encode()?)
+        self.unprotect_raw(data, &metadata.encode()?)
     }
 
-    /// Decrypt one frame.
-    pub fn unprotect(&self, data: &[u8], metadata: &[u8]) -> Result<Vec<u8>, Error> {
+    /// Decrypt one frame sealed by [`Sender::protect_raw`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Receiver::unprotect_object`], less the metadata check.
+    pub fn unprotect_raw(&self, data: &[u8], aad: &[u8]) -> Result<Vec<u8>, Error> {
         let (header, length) = Header::read(data)?;
+        let kid = header.key_id;
+        let replay = Error::Replay {
+            counter: header.counter,
+        };
 
         let held = self
             .state
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .keys
-            .contains_key(&header.key_id);
-        if !held {
-            let resolver = self
-                .resolver
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
-            if let Some(key) = resolver.and_then(|resolve| resolve(header.key_id))
-                && key.key_id() == header.key_id
+            .get(&kid)
+            .cloned();
+        // A resolved key is held aside until an object authenticates under it,
+        // so objects under made-up KIDs cannot fill the receiver with keys.
+        let (key, resolved) = match held {
+            Some(key) => (key, None),
+            None => {
+                let resolver = self
+                    .resolver
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone();
+                let key = resolver
+                    .and_then(|resolve| resolve(kid))
+                    .filter(|key| key.key_id() == kid)
+                    .ok_or(Error::UnknownKey(kid))?;
+                (Arc::new(key), Some(ReplayWindow::new(self.window)))
+            }
+        };
+
+        if resolved.is_none() {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if !state
+                .seen
+                .get(&kid)
+                .is_none_or(|w| w.accepts(header.counter))
             {
-                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-                if !state.keys.contains_key(&header.key_id) {
-                    state
-                        .seen
-                        .insert(header.key_id, ReplayWindow::new(self.window));
-                    state.keys.insert(header.key_id, Arc::new(key));
-                }
+                return Err(replay);
             }
         }
 
-        let key = {
-            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            let key = state
-                .keys
-                .get(&header.key_id)
-                .cloned()
-                .ok_or(Error::UnknownKey(header.key_id))?;
-            if !state
-                .seen
-                .get(&header.key_id)
-                .is_none_or(|w| w.accepts(header.counter))
-            {
-                return Err(Error::Replay {
-                    counter: header.counter,
-                });
-            }
-            key
-        };
-
-        let mut aad = data[..length].to_vec();
-        aad.extend_from_slice(metadata);
-        let plaintext = key.open(&data[length..], header.counter, &aad)?;
+        let mut full = data[..length].to_vec();
+        full.extend_from_slice(aad);
+        let plaintext = key.open(&data[length..], header.counter, &full)?;
 
         // Recorded only after authentication, so a forged object cannot knock
-        // out the real one behind it.
+        // out the real one behind it. Checked again, because another copy of
+        // this object may have opened meanwhile.
+        let was_resolved = resolved.is_some();
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state
-            .keys
-            .get(&header.key_id)
-            .is_some_and(|k| Arc::ptr_eq(k, &key))
-            && let Some(window) = state.seen.get_mut(&header.key_id)
+        let ReceiverState { keys, seen } = &mut *state;
+        if let Some(window) = resolved
+            && !keys.contains_key(&kid)
         {
+            keys.insert(kid, Arc::clone(&key));
+            seen.insert(kid, window);
+        }
+        if (was_resolved || keys.get(&kid).is_some_and(|k| Arc::ptr_eq(k, &key)))
+            && let Some(window) = seen.get_mut(&kid)
+        {
+            if !window.accepts(header.counter) {
+                return Err(replay);
+            }
             window.record(header.counter);
         }
         Ok(plaintext)

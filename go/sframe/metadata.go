@@ -8,10 +8,60 @@ import (
 	"slices"
 )
 
+// Track is a MoQ Full Track Name: the namespace's fields and the track's name,
+// as bytes.
+type Track struct {
+	Namespace [][]byte
+	Name      []byte
+}
+
+// TrackOf is the track with these namespace fields and name, as their UTF-8
+// bytes, unnormalised.
+func TrackOf(namespace []string, name string) Track {
+	t := Track{Namespace: make([][]byte, len(namespace)), Name: []byte(name)}
+	for i, field := range namespace {
+		t.Namespace[i] = []byte(field)
+	}
+	return t
+}
+
+// MOQT's limits on a Full Track Name: at least one and at most 32 namespace
+// fields, and at most 4096 bytes in the fields and the name together.
+const (
+	MaxNamespaceFields = 32
+	MaxTrackNameLength = 4096
+)
+
+// Encode is the Serialized Full Track Name of draft-ietf-moq-secure-objects
+// §3.3.1: the number of namespace fields, each field with its length, then the
+// name with its length, all lengths as varints.
+func (t Track) Encode() ([]byte, error) {
+	return t.append(nil)
+}
+
+func (t Track) append(out []byte) ([]byte, error) {
+	total := len(t.Name)
+	for _, field := range t.Namespace {
+		total += len(field)
+	}
+	if len(t.Namespace) == 0 || len(t.Namespace) > MaxNamespaceFields || total > MaxTrackNameLength {
+		return nil, ErrInvalidMetadata
+	}
+	out = appendVarInt(out, uint64(len(t.Namespace)))
+	for _, field := range t.Namespace {
+		out = appendVarInt(out, uint64(len(field)))
+		out = append(out, field...)
+	}
+	out = appendVarInt(out, uint64(len(t.Name)))
+	return append(out, t.Name...), nil
+}
+
 // Metadata is the canonical description of one MoQ object, bound into the tag
-// with its payload: the fields a relay reads to schedule, which it can then
-// read and not change.
+// with its payload: the fields a relay reads to route and schedule, which it
+// can then read and not change. Track is required; a zero Track has no
+// encoding.
 type Metadata struct {
+	Track      Track
 	Group      uint64
 	Object     uint64
 	Priority   uint8
@@ -44,12 +94,14 @@ const (
 )
 
 // Encode is the AAD appended to the SFrame header: the MOQT wire encoding of
-// the same fields, QUIC varints throughout, and properties as a count followed
-// by type-delta-coded pairs sorted by type, keeping the given order among
-// equal types.
+// the same fields — the Serialized Full Track Name, QUIC varints, and
+// properties as a count followed by type-delta-coded pairs sorted by type,
+// keeping the given order among equal types.
 func (m Metadata) Encode() ([]byte, error) {
-	out := make([]byte, 0, 16)
-	var err error
+	out, err := m.Track.append(make([]byte, 0, 32))
+	if err != nil {
+		return nil, err
+	}
 	put := func(v uint64) {
 		if err == nil && v > varIntMaximum {
 			err = ErrInvalidMetadata

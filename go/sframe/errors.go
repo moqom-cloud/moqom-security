@@ -27,6 +27,8 @@ var (
 	ErrNoKey            = errors.New("sframe: no key to send under")
 	ErrInvalidMetadata  = errors.New("sframe: metadata has no canonical encoding")
 	ErrUnsupportedSuite = errors.New("sframe: cipher suite not supported")
+	// ErrInvalidBaseKey: a base key that is not the suite's KeyLength bytes.
+	ErrInvalidBaseKey = errors.New("sframe: base key is not the suite's key length")
 )
 
 // UnknownKeyError names the KID no key is held for.
@@ -57,6 +59,7 @@ var classes = []struct {
 	{ErrNoKey, "no_key"},
 	{ErrInvalidMetadata, "invalid_metadata"},
 	{ErrUnsupportedSuite, "unsupported_suite"},
+	{ErrInvalidBaseKey, "invalid_base_key"},
 }
 
 // Class is the vector error class of err, or "" for nil or an error this

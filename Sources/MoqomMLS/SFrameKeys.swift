@@ -40,18 +40,26 @@ public enum MLSSFrameKeys {
         epoch: UInt64,
         suite: SFrameCipherSuite
     ) -> SFrameKey {
-        key(baseKey: baseKey(secrets, suite: suite), leaf: leaf, epoch: epoch, suite: suite)
+        exported(baseKey(secrets, suite: suite), leaf: leaf, epoch: epoch, suite: suite)
     }
 
     /// From a base key already exported, so a whole roster can be keyed with
     /// one export.
+    ///
+    /// - Throws: ``SFrameError/invalidBaseKey`` unless `baseKey` is the
+    ///   suite's key length.
     public static func key(
         baseKey: Data,
         leaf: UInt32,
         epoch: UInt64,
         suite: SFrameCipherSuite
-    ) -> SFrameKey {
-        SFrameKey(keyID: keyID(leaf: leaf, epoch: epoch), baseKey: baseKey, suite: suite)
+    ) throws(SFrameError) -> SFrameKey {
+        try SFrameKey(keyID: keyID(leaf: leaf, epoch: epoch), baseKey: baseKey, suite: suite)
+    }
+
+    /// A base key this module exported at the suite's length itself.
+    static func exported(_ baseKey: Data, leaf: UInt32, epoch: UInt64, suite: SFrameCipherSuite) -> SFrameKey {
+        SFrameKey(keyID: keyID(leaf: leaf, epoch: epoch), uncheckedBaseKey: baseKey, suite: suite)
     }
 }
 
@@ -70,6 +78,6 @@ extension MLSGroup {
     /// Every current member's SFrame key for this epoch, from one export.
     public func sframeKeys(suite: SFrameCipherSuite) -> [SFrameKey] {
         let base = MLSSFrameKeys.baseKey(secrets, suite: suite)
-        return roster.map { MLSSFrameKeys.key(baseKey: base, leaf: $0.leaf, epoch: epoch, suite: suite) }
+        return roster.map { MLSSFrameKeys.exported(base, leaf: $0.leaf, epoch: epoch, suite: suite) }
     }
 }

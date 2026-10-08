@@ -4,10 +4,11 @@
 //! moqom-sframe: SFrame (RFC 9605) for MoQ objects.
 //!
 //! An object is sealed under a key derived from a base key and a KID, with a
-//! counter the sender owns, and with the object's [`Metadata`] — group, object,
-//! priority and properties, the fields a relay reads to schedule — bound into
-//! the AEAD tag in the shape of `draft-ietf-moq-secure-objects`. A relay can
-//! read and forward them and cannot change any of them.
+//! counter the sender owns, and with the object's [`Metadata`] — full track
+//! name, group, object, priority and properties, the fields
+//! `draft-ietf-moq-secure-objects` authenticates — bound into the AEAD tag as
+//! AAD after the RFC 9605 header. A relay can read and forward them and cannot
+//! change any of them.
 //!
 //! Only the AES-GCM suites (0x0004 and 0x0005) are implemented. Every platform
 //! MOQOM targets has hardware AES-GCM, and the AES-CTR + HMAC suites would be a
@@ -26,16 +27,19 @@
 //! [`MLS_EXPORTER_LABEL`]. Both ends derive the same key from it.
 //!
 //! ```
-//! use moqom_sframe::{CipherSuite, Error, Key, Metadata, Property, Receiver, Sender, mls_key_id};
+//! use moqom_sframe::{
+//!     CipherSuite, Error, Key, Metadata, Property, Receiver, Sender, Track, mls_key_id,
+//! };
 //!
 //! # fn main() -> Result<(), Error> {
 //! let base_key = [0x2a; 32];
-//! let key_id = mls_key_id(3, 14); // leaf 3, epoch 14
-//! let sender = Sender::new(Key::new(key_id, &base_key, CipherSuite::Aes256GcmSha512));
+//! let key = Key::new(mls_key_id(3, 14), &base_key, CipherSuite::Aes256GcmSha512)?; // leaf 3, epoch 14
+//! let sender = Sender::new(key.clone());
 //! let receiver = Receiver::default();
-//! receiver.add(Key::new(key_id, &base_key, CipherSuite::Aes256GcmSha512));
+//! receiver.add(key);
 //!
 //! let metadata = Metadata {
+//!     track: Track::new(["moqom", "demo", "alice"], "video"),
 //!     group: 5,
 //!     object: 2,
 //!     priority: 64,
@@ -48,8 +52,11 @@
 //! assert_eq!(object[..2], [0x80, 0x3e]); // KID 62, counter 0
 //! assert_eq!(object.len(), 2 + 5 + 16);
 //!
-//! // A relay that relabels the object's group, or flips a bit, is caught.
+//! // A relay that relabels the object's group, moves it to another track, or
+//! // flips a bit, is caught.
 //! let moved = Metadata { group: 6, ..metadata.clone() };
+//! assert_eq!(receiver.unprotect_object(&object, &moved), Err(Error::AuthenticationFailure));
+//! let moved = Metadata { track: Track::new(["moqom", "demo", "bob"], "video"), ..metadata.clone() };
 //! assert_eq!(receiver.unprotect_object(&object, &moved), Err(Error::AuthenticationFailure));
 //! let mut damaged = object.clone();
 //! *damaged.last_mut().unwrap() ^= 0x01;
@@ -71,11 +78,12 @@
 //! counter up to 1,023 behind the highest seen is accepted once.
 //!
 //! ```
-//! use moqom_sframe::{CipherSuite, Context, Error, Metadata};
+//! use moqom_sframe::{CipherSuite, Context, Error, Metadata, Track};
 //!
 //! # fn main() -> Result<(), Error> {
-//! let context = Context::new(CipherSuite::Aes128GcmSha256, 1, &[0x2a; 16]);
-//! let metadata = Metadata { group: 0, object: 0, priority: 128, properties: vec![] };
+//! let context = Context::new(CipherSuite::Aes128GcmSha256, 1, &[0x2a; 16])?;
+//! let track = Track::new(["moqom", "demo", "alice"], "audio");
+//! let metadata = Metadata { track, group: 0, object: 0, priority: 128, properties: vec![] };
 //! let objects = (0..=1024u32)
 //!     .map(|counter| context.seal(&counter.to_be_bytes(), &metadata))
 //!     .collect::<Result<Vec<_>, _>>()?;
@@ -99,7 +107,7 @@ mod vectors;
 pub use context::Context;
 pub use header::{EPOCH_BITS, Header, MLS_EXPORTER_LABEL, epoch_tag, mls_key_id};
 pub use key::Key;
-pub use metadata::{Metadata, Property, PropertyValue};
+pub use metadata::{Metadata, Property, PropertyValue, Track};
 pub use protect::{DEFAULT_REPLAY_WINDOW, Receiver, Sender};
 
 /// An RFC 9605 §8.1 cipher suite.
@@ -183,6 +191,9 @@ pub enum Error {
     /// A cipher suite this library does not implement.
     #[error("sframe cipher suite {0:#06x} is not supported")]
     UnsupportedSuite(u16),
+    /// A base key that is not the suite's [`CipherSuite::key_length`].
+    #[error("sframe base key is not the suite's key length")]
+    InvalidBaseKey,
 }
 
 impl Error {
@@ -198,6 +209,7 @@ impl Error {
             Self::NoKey => "no_key",
             Self::InvalidMetadata => "invalid_metadata",
             Self::UnsupportedSuite(_) => "unsupported_suite",
+            Self::InvalidBaseKey => "invalid_base_key",
         }
     }
 }

@@ -92,6 +92,24 @@ public enum SFrameError: Error, Hashable, Sendable {
 
     /// Object metadata that has no canonical encoding; see ``SFrameMetadata``.
     case invalidMetadata
+
+    /// A base key that is not ``SFrameCipherSuite/keyLength`` bytes.
+    case invalidBaseKey
+
+    /// The error class the shared vectors and the Go and Rust libraries name
+    /// this failure with.
+    public var errorClass: String {
+        switch self {
+        case .malformedHeader: "malformed_header"
+        case .unknownKey: "unknown_key"
+        case .authenticationFailure: "authentication_failure"
+        case .replay: "replay"
+        case .counterExhausted: "counter_exhausted"
+        case .noKey: "no_key"
+        case .invalidMetadata: "invalid_metadata"
+        case .invalidBaseKey: "invalid_base_key"
+        }
+    }
 }
 
 /// The KID and CTR that precede an SFrame ciphertext.
@@ -222,7 +240,25 @@ public struct SFrameKey: Sendable {
     /// The KID and cipher suite are inside the derivation labels rather than
     /// only in the header, which is what stops a ciphertext produced under one
     /// KID or suite from ever authenticating under another.
-    public init(keyID: UInt64, baseKey: Data, suite: SFrameCipherSuite = .aes256GcmSha512) {
+    ///
+    /// - Throws: ``SFrameError/invalidBaseKey`` unless `baseKey` is
+    ///   ``SFrameCipherSuite/keyLength`` bytes, the length an MLS exporter
+    ///   gives the suite.
+    public init(
+        keyID: UInt64,
+        baseKey: Data,
+        suite: SFrameCipherSuite = .aes256GcmSha512
+    ) throws(SFrameError) {
+        guard baseKey.count == suite.keyLength else { throw SFrameError.invalidBaseKey }
+        self.init(keyID: keyID, uncheckedBaseKey: baseKey, suite: suite)
+    }
+
+    /// Derive without checking the base key's length.
+    ///
+    /// For a base key already exported at the suite's length, and for RFC
+    /// 9605's Appendix C, which derives suite 0x0005 keys from a 16-byte base
+    /// key.
+    package init(keyID: UInt64, uncheckedBaseKey baseKey: Data, suite: SFrameCipherSuite) {
         self.keyID = keyID
         self.suite = suite
 
@@ -311,9 +347,15 @@ public struct SFrameKey: Sendable {
 
 /// Encrypts, owning the counter.
 ///
-/// One sender per (key, media stream). Sharing one across two streams is safe
-/// and sharing a *key* across two senders is not, because two independent
-/// counters under one key will collide.
+/// One sender per key. Sharing one across two streams is safe and sharing a
+/// *key* across two senders is not, because two independent counters under one
+/// key will collide.
+///
+/// The counter is held in memory and starts at 0 for every sender and every
+/// key. A key is fixed by its base key, KID and suite, so deriving the same one
+/// again — in a second sender, on a second device, or in the same process after
+/// a restart — repeats nonces. Every new sender needs a base key or KID that
+/// has never sealed before: a new MLS epoch, or a fresh random KID.
 ///
 /// Managed key management rotates the key in place with ``rekey(_:)``. The
 /// counter restarts with each key, which is safe because the nonce is the
@@ -365,16 +407,16 @@ public final class SFrameSender: @unchecked Sendable {
         }
     }
 
-    /// Encrypt one MoQ object, binding its metadata into the tag.
+    /// Encrypt one MoQ object, binding its track, position and properties into
+    /// the tag.
     public func protect(_ plaintext: Data, metadata: SFrameMetadata) throws(SFrameError) -> Data {
-        try protect(plaintext, metadata: metadata.encoded())
+        try protectRaw(plaintext, aad: metadata.encoded())
     }
 
-    /// Encrypt one frame.
-    ///
-    /// - Parameter metadata: Authenticated but not encrypted. Whatever the
-    ///   relay is allowed to read and must not be able to change.
-    public func protect(_ plaintext: Data, metadata: Data = Data()) throws(SFrameError) -> Data {
+    /// Encrypt one frame with arbitrary AAD after the header, as RFC 9605's
+    /// own vectors do. Not for MoQ objects, which bind their track through
+    /// ``protect(_:metadata:)``.
+    public func protectRaw(_ plaintext: Data, aad metadata: Data) throws(SFrameError) -> Data {
         lock.lock()
         guard let key = current else {
             lock.unlock()
@@ -415,10 +457,11 @@ public final class SFrameReceiver: @unchecked Sendable {
 
     /// Asked for a key the receiver does not hold, before giving up on a frame.
     ///
-    /// For key schemes where a receiver can derive a sender's next key without
-    /// being sent it — a sender-key ratchet — so a sender can move forward
-    /// without a distribution message per step. A key it returns is added as
-    /// though ``add(_:)`` had been called.
+    /// For key schemes where a receiver can derive a sender's key without being
+    /// sent it, so a sender can choose a new KID without a distribution message.
+    /// A key it returns is added as though ``add(_:)`` had been called, once a
+    /// frame has authenticated under it; a key for any other KID is ignored.
+    /// Called without the receiver's lock held, possibly concurrently.
     public func setResolver(_ resolve: (@Sendable (UInt64) -> SFrameKey?)?) {
         lock.withLock { resolver = resolve }
     }
@@ -446,49 +489,55 @@ public final class SFrameReceiver: @unchecked Sendable {
         seen[keyID] = nil
     }
 
-    /// Decrypt one MoQ object against the metadata it arrived with.
+    /// Decrypt one MoQ object against the track, position and properties it
+    /// arrived with.
     public func unprotect(_ data: Data, metadata: SFrameMetadata) throws(SFrameError) -> Data {
-        try unprotect(data, metadata: metadata.encoded())
+        try unprotectRaw(data, aad: metadata.encoded())
     }
 
-    /// Decrypt one frame.
-    public func unprotect(_ data: Data, metadata: Data = Data()) throws(SFrameError) -> Data {
+    /// Decrypt one frame sealed by ``SFrameSender/protectRaw(_:aad:)``.
+    public func unprotectRaw(_ data: Data, aad metadata: Data) throws(SFrameError) -> Data {
         let (header, length) = try SFrameHeader.read(from: data)
+        let kid = header.keyID
 
         lock.lock()
-        if keys[header.keyID] == nil, let resolver {
-            lock.unlock()
-            let resolved = resolver(header.keyID)
-            lock.lock()
-            if let resolved, resolved.keyID == header.keyID, keys[header.keyID] == nil {
-                keys[header.keyID] = resolved
-                seen[header.keyID] = ReplayWindow(size: replayWindow)
-            }
-        }
-        guard let key = keys[header.keyID] else {
-            lock.unlock()
-            throw SFrameError.unknownKey(header.keyID)
-        }
-        let window = seen[header.keyID] ?? ReplayWindow(size: replayWindow)
-        seen[header.keyID] = window
-        guard window.accepts(header.counter) else {
-            lock.unlock()
-            throw SFrameError.replay(counter: header.counter)
-        }
+        var key = keys[kid]
+        var window = seen[kid]
+        let resolve = key == nil ? resolver : nil
         lock.unlock()
+
+        // A resolved key is held aside until a frame authenticates under it, so
+        // frames under made-up KIDs cannot fill the receiver with keys.
+        var resolved = false
+        if let resolve, let candidate = resolve(kid), candidate.keyID == kid {
+            key = candidate
+            window = ReplayWindow(size: replayWindow)
+            resolved = true
+        }
+        guard let key, let window else { throw SFrameError.unknownKey(kid) }
+
+        lock.lock()
+        let fresh = window.accepts(header.counter)
+        lock.unlock()
+        guard fresh else { throw SFrameError.replay(counter: header.counter) }
 
         let aad = data.prefix(length) + metadata
         let plaintext = try key.open(data.dropFirst(length), counter: header.counter, aad: aad)
 
         // Recorded only after authentication. Marking a counter used on a frame
         // that failed to authenticate would let anyone with a forged frame
-        // knock out the real one behind it.
+        // knock out the real one behind it. Checked again, because another
+        // copy of this frame may have opened meanwhile.
         lock.lock()
-        if seen[header.keyID] === window {
-            window.record(header.counter)
+        defer { lock.unlock() }
+        if resolved, keys[kid] == nil {
+            keys[kid] = key
+            seen[kid] = window
         }
-        lock.unlock()
-
+        if let current = seen[kid], current === window || resolved {
+            guard current.accepts(header.counter) else { throw SFrameError.replay(counter: header.counter) }
+            current.record(header.counter)
+        }
         return plaintext
     }
 }

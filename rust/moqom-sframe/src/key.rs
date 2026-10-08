@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Elliott Wave LLC
 
+use std::sync::Arc;
+
 use aws_lc_rs::aead::{AES_128_GCM, AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
 use aws_lc_rs::hkdf::{self, HKDF_SHA256, HKDF_SHA512, KeyType, Salt};
 
 use crate::{CipherSuite, Error};
 
-/// The AEAD key and salt derived from a base key for one KID.
+/// The AEAD key and salt derived from a base key for one KID. Cloning shares
+/// the derived key rather than deriving it again.
+#[derive(Clone)]
 pub struct Key {
     key_id: u64,
     suite: CipherSuite,
-    aead: LessSafeKey,
+    aead: Arc<LessSafeKey>,
     salt: [u8; NONCE_LEN],
     #[cfg(test)]
     pub(crate) raw: Vec<u8>,
@@ -59,8 +63,21 @@ impl Key {
     /// Derive per RFC 9605 §4.4.2. The KID and suite are in the derivation
     /// labels, so a ciphertext made under one KID or suite never authenticates
     /// under another.
-    #[must_use]
-    pub fn new(key_id: u64, base_key: &[u8], suite: CipherSuite) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidBaseKey`] unless `base_key` is the suite's
+    /// [`CipherSuite::key_length`], the length an MLS exporter gives it.
+    pub fn new(key_id: u64, base_key: &[u8], suite: CipherSuite) -> Result<Self, Error> {
+        if base_key.len() != suite.key_length() {
+            return Err(Error::InvalidBaseKey);
+        }
+        Ok(Self::unchecked(key_id, base_key, suite))
+    }
+
+    /// Derive without checking the base key's length, for RFC 9605's Appendix
+    /// C, which derives suite 0x0005 keys from a 16-byte base key.
+    pub(crate) fn unchecked(key_id: u64, base_key: &[u8], suite: CipherSuite) -> Self {
         let secret = extract(base_key, suite);
         let mut raw = vec![0; suite.key_length()];
         expand(
@@ -78,9 +95,9 @@ impl Key {
             CipherSuite::Aes128GcmSha256 => &AES_128_GCM,
             CipherSuite::Aes256GcmSha512 => &AES_256_GCM,
         };
-        let aead = LessSafeKey::new(
+        let aead = Arc::new(LessSafeKey::new(
             UnboundKey::new(algorithm, &raw).expect("derived key has the suite's length"),
-        );
+        ));
         Self {
             key_id,
             suite,
