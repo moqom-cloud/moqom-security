@@ -16,6 +16,85 @@
 //!
 //! No ratchet tree, no PrivateMessage or PublicMessage framing, no PSKs, no
 //! external commits; see `docs/moqom-mls.md`.
+//!
+//! # Examples
+//!
+//! Alice founds a group and adds Bob from his key package. Bob joins from the
+//! Welcome, Alice rotates her leaf key with an empty commit, and both end on
+//! the same epoch with the same epoch authenticator and SFrame base key.
+//!
+//! ```
+//! use moqom_mls::{
+//!     CipherSuite, CommitMessage, Group, KeyPackage, KeyPackageBundle, Processed,
+//!     SFRAME_EXPORTER_LABEL, Welcome,
+//! };
+//!
+//! let room = b"acme/room-42";
+//! let alice = KeyPackageBundle::generate("alice/phone", CipherSuite::FOUNDING)?;
+//! let bob = KeyPackageBundle::generate("bob/laptop", CipherSuite::FOUNDING)?;
+//!
+//! // Alice reads Bob's published key package and commits to add him.
+//! let bob_package = KeyPackage::parse(&bob.key_package.encode())?;
+//! let alice_group = Group::create(room, &alice)?;
+//! let add = alice_group.commit(&[bob_package], &[])?;
+//! let alice_group = add.next; // once the delivery service accepts add.message
+//!
+//! // Bob joins from the Welcome.
+//! let welcome = Welcome::decode(&add.welcome.expect("Bob was added").encode())?;
+//! let bob_group = Group::join(&welcome, &bob)?;
+//!
+//! // An empty commit refreshes Alice's leaf key; Bob follows it.
+//! let update = alice_group.commit(&[], &[])?;
+//! let alice_group = update.next;
+//! let message = CommitMessage::decode(&update.message.encode())?;
+//! let Processed::Advanced(bob_group) = bob_group.process(&message)? else {
+//!     panic!("Bob was removed");
+//! };
+//!
+//! assert_eq!((alice_group.epoch(), bob_group.epoch()), (2, 2));
+//! assert_eq!(alice_group.epoch_authenticator(), bob_group.epoch_authenticator());
+//! let base = alice_group.exporter(SFRAME_EXPORTER_LABEL, &[], 32);
+//! assert_eq!(base, bob_group.exporter(SFRAME_EXPORTER_LABEL, &[], 32));
+//! # Ok::<(), moqom_mls::Error>(())
+//! ```
+//!
+//! A delivery service checks a key package before accepting it, and a
+//! removed member's [`Group::process`] returns [`Processed::Removed`]:
+//!
+//! ```
+//! use moqom_mls::{CipherSuite, Error, Group, KeyPackage, KeyPackageBundle, Processed};
+//!
+//! let alice = KeyPackageBundle::generate("alice/phone", CipherSuite::FOUNDING)?;
+//! let bob = KeyPackageBundle::generate("bob/laptop", CipherSuite::FOUNDING)?;
+//!
+//! let mut data = bob.key_package.encode();
+//! *data.last_mut().unwrap() ^= 1;
+//! assert_eq!(KeyPackage::parse(&data), Err(Error::BadSignature("key package")));
+//!
+//! let add = Group::create(b"acme/room-42", &alice)?.commit(&[bob.key_package.clone()], &[])?;
+//! let bob_group = Group::join(add.welcome.as_ref().expect("Bob was added"), &bob)?;
+//! let leaf = add.next.leaf_of("bob/laptop").expect("Bob is a member");
+//! let removal = add.next.commit(&[], &[leaf])?;
+//! assert!(matches!(bob_group.process(&removal.message)?, Processed::Removed));
+//! # Ok::<(), moqom_mls::Error>(())
+//! ```
+//!
+//! A broadcast viewer is not a member. The committer seals each epoch's SFrame
+//! base key to the viewer's ML-KEM-768 key, for one group and epoch only:
+//!
+//! ```
+//! use moqom_mls::{Error, audience};
+//!
+//! let group_id = b"acme/room-42";
+//! let base = [0u8; 32]; // from group.exporter(SFRAME_EXPORTER_LABEL, &[], 32)
+//!
+//! let (private, public) = audience::generate_key_pair()?;
+//! let envelope = audience::seal(&base, &public, group_id, 7)?;
+//!
+//! assert_eq!(audience::open(&envelope, &private, group_id, 7)?, base);
+//! assert_eq!(audience::open(&envelope, &private, group_id, 8), Err(Error::DecryptionFailed));
+//! # Ok::<(), moqom_mls::Error>(())
+//! ```
 
 pub mod audience;
 mod codec;
