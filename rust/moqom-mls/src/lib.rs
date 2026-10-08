@@ -112,3 +112,22 @@ pub use group::{CommitMessage, Group, Leaf, PendingCommit, Processed, Welcome};
 pub use key_package::{KeyPackage, KeyPackageBundle};
 pub use key_schedule::{EpochSecrets, GroupContext, SFRAME_EXPORTER_LABEL, welcome_secret};
 pub use suite::{CipherSuite, HpkeCiphertext};
+
+/// The cases of a file in the repository's `vectors/mls`, or `None` in a
+/// packaged crate, which does not carry that directory. In the repository a
+/// missing file fails.
+#[cfg(test)]
+fn published_vectors(name: &str) -> Option<Vec<serde_json::Value>> {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let dir = root.join("../../vectors/mls");
+    if !dir.exists() && root.join("Cargo.toml.orig").exists() {
+        eprintln!("{name}: skipped, the shared vectors are not part of the package");
+        return None;
+    }
+    let path = dir.join(name);
+    let document: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let cases = document["cases"].as_array().expect("cases").clone();
+    assert!(!cases.is_empty(), "{name}");
+    Some(cases)
+}

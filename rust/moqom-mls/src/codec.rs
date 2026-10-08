@@ -154,13 +154,14 @@ mod tests {
 
     #[test]
     fn published_deserialization() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../vectors/mls/mlswg-deserialization.json"
+        assert!(
+            Reader(&[0x40, 0x05, 1, 2, 3, 4, 5]).vector().is_err(),
+            "a two-byte encoding of five"
         );
-        let document: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-        for v in document["cases"].as_array().unwrap() {
+        let Some(cases) = crate::published_vectors("mlswg-deserialization.json") else {
+            return;
+        };
+        for v in &cases {
             let length = v["length"].as_u64().unwrap() as usize;
             let header = hex(v["vlbytes_header"].as_str().unwrap());
             let mut w = Writer::default();
@@ -170,9 +171,5 @@ mod tests {
             assert_eq!(r.length().unwrap(), length);
             r.finish().unwrap();
         }
-        assert!(
-            Reader(&[0x40, 0x05, 1, 2, 3, 4, 5]).vector().is_err(),
-            "a two-byte encoding of five"
-        );
     }
 }

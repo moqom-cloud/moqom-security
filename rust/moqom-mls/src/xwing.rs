@@ -125,13 +125,6 @@ pub(crate) fn decapsulate(ciphertext: &[u8], seed: &[u8]) -> Result<Secret> {
 mod tests {
     use super::*;
 
-    fn published(file: &str) -> Vec<serde_json::Value> {
-        let path = format!("{}/../../vectors/mls/{file}", env!("CARGO_MANIFEST_DIR"));
-        let document: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&path).expect(&path)).expect(&path);
-        document["cases"].as_array().expect("cases").clone()
-    }
-
     fn hex(v: &serde_json::Value, key: &str) -> Vec<u8> {
         let s = v[key].as_str().expect(key);
         (0..s.len())
@@ -142,7 +135,10 @@ mod tests {
 
     #[test]
     fn draft_vectors() {
-        for v in published("xwing-draft.json") {
+        let Some(cases) = crate::published_vectors("xwing-draft.json") else {
+            return;
+        };
+        for v in cases {
             let name = v["name"].as_str().unwrap();
             assert_eq!(public_key(&hex(&v, "sk")).unwrap(), hex(&v, "pk"), "{name}");
             assert_eq!(
@@ -155,7 +151,10 @@ mod tests {
 
     #[test]
     fn hpke_working_group_vector() {
-        for v in published("hpkewg-xwing.json") {
+        let Some(cases) = crate::published_vectors("hpkewg-xwing.json") else {
+            return;
+        };
+        for v in cases {
             assert_eq!(public_key(&hex(&v, "skRm")).unwrap(), hex(&v, "pkRm"));
             assert_eq!(
                 *decapsulate(&hex(&v, "enc"), &hex(&v, "skRm")).unwrap(),
