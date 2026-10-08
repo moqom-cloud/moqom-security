@@ -86,9 +86,26 @@ struct MLSVectorGenerator {
         cases.append(encrypted.merging(["name": "encrypt-with-label-tampered", "ciphertext_hex": flipped(sealed.ciphertext, at: 0).hex, "error": "decryption-failed"]) { $1 })
         cases.append(encrypted.merging(["name": "encrypt-with-label-short-kem-output", "kem_output_hex": sealed.kemOutput.dropLast().hex, "error": "decryption-failed"]) { $1 })
 
+        let xWing = MLSCipherSuite.mls128MLKEM768X25519
+        let xWingSeed = fixed("xwing seed", 32)
+        let xWingKey = try XWingMLKEM768X25519.PrivateKey(seedRepresentation: xWingSeed, publicKey: nil)
+        let xWingContext = fixed("xwing context", 40)
+        let xWingPlaintext = fixed("xwing plaintext", 32)
+        let xWingSealed = try xWing.encryptWithLabel(xWingKey.publicKey.rawRepresentation, label: "Welcome", context: xWingContext, plaintext: xWingPlaintext)
+        let xWingEncrypted: [String: Any] = [
+            "op": "encrypt_with_label", "cipher_suite": Int(xWing.identifier), "seed_hex": xWingSeed.hex,
+            "public_key_hex": xWingKey.publicKey.rawRepresentation.hex, "label": "Welcome", "context_hex": xWingContext.hex,
+            "plaintext_hex": xWingPlaintext.hex, "kem_output_hex": xWingSealed.kemOutput.hex, "ciphertext_hex": xWingSealed.ciphertext.hex,
+        ]
+        cases.append(xWingEncrypted.merging(["name": "xwing-encrypt-with-label"]) { $1 })
+        cases.append(xWingEncrypted.merging(["name": "xwing-encrypt-with-label-other-context", "context_hex": flipped(xWingContext, at: 0).hex, "error": "decryption-failed"]) { $1 })
+        cases.append(xWingEncrypted.merging(["name": "xwing-encrypt-with-label-tampered-ml-kem", "kem_output_hex": flipped(xWingSealed.kemOutput, at: 0).hex, "error": "decryption-failed"]) { $1 })
+        cases.append(xWingEncrypted.merging(["name": "xwing-encrypt-with-label-tampered-x25519", "kem_output_hex": flipped(xWingSealed.kemOutput, at: -1).hex, "error": "decryption-failed"]) { $1 })
+        cases.append(xWingEncrypted.merging(["name": "xwing-encrypt-with-label-short-kem-output", "kem_output_hex": xWingSealed.kemOutput.dropLast().hex, "error": "decryption-failed"]) { $1 })
+
         try Vectors.write(
             "mls-crypto.json",
-            description: "RFC 9420 §5 labelled primitives in MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65 (0xF0AA): ExpandWithLabel, DeriveSecret and RefHash over HKDF-SHA384; SignWithLabel over ML-DSA-65 (pure, empty context); EncryptWithLabel over HPKE KEM 0x0041 (ML-KEM-768), HKDF-SHA384, AES-256-GCM. Seeds are FIPS 203 (d || z) and FIPS 204 (xi). Signatures and ciphertexts are to verify and open, not to reproduce.",
+            description: "RFC 9420 §5 labelled primitives in MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65 (0xF0AA): ExpandWithLabel, DeriveSecret and RefHash over HKDF-SHA384; SignWithLabel over ML-DSA-65 (pure, empty context); EncryptWithLabel over HPKE KEM 0x0041 (ML-KEM-768), HKDF-SHA384, AES-256-GCM. Cases whose cipher_suite is 61601 are EncryptWithLabel in MLS_128_MLKEM768X25519_AES128GCM_SHA256_Ed25519 (0xF0A1): HPKE KEM 0x647a (X-Wing, the private key its 32-byte seed), HKDF-SHA256, AES-128-GCM. Seeds are FIPS 203 (d || z), X-Wing's and FIPS 204 (xi). Signatures and ciphertexts are to verify and open, not to reproduce.",
             source: source, cases: cases
         )
     }

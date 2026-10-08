@@ -44,8 +44,11 @@ struct SharedVectorTests {
                 #expect(suite.verifyWithLabel(v.hex("public_key_hex"), label: v.string("label"), content: v.hex("content_hex"), signature: ours))
             }
         case "encrypt_with_label":
-            let key = try MLKEM768.PrivateKey(seedRepresentation: v.hex("seed_hex"), publicKey: nil)
-            #expect(key.publicKey.rawRepresentation == v.hex("public_key_hex"))
+            let suite = v.has("cipher_suite") ? try #require(MLSCipherSuite(identifier: UInt16(v.int("cipher_suite")))) : suite
+            let publicKey = suite == .mls128MLKEM768X25519
+                ? try XWingMLKEM768X25519.PrivateKey(seedRepresentation: v.hex("seed_hex"), publicKey: nil).publicKey.rawRepresentation
+                : try MLKEM768.PrivateKey(seedRepresentation: v.hex("seed_hex"), publicKey: nil).publicKey.rawRepresentation
+            #expect(publicKey == v.hex("public_key_hex"))
             var opened: Data?
             let error = failure {
                 opened = try suite.decryptWithLabel(

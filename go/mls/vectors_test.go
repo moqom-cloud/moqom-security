@@ -215,9 +215,12 @@ func cryptoCases(t *testing.T) []vector {
 }
 
 func TestCryptoVectors(t *testing.T) {
-	suite := SuiteMLDSA
 	for _, v := range cryptoCases(t) {
 		t.Run(v.name(), func(t *testing.T) {
+			suite := SuiteMLDSA
+			if v.has("cipher_suite") {
+				suite = CipherSuite(v.int("cipher_suite"))
+			}
 			want := expectedError(v)
 			switch v.str("op") {
 			case "expand_with_label":
@@ -248,8 +251,8 @@ func TestCryptoVectors(t *testing.T) {
 					}
 				}
 			case "encrypt_with_label":
-				key, err := mlkem.NewDecapsulationKey768(v.hex(t, "seed_hex"))
-				if err != nil || !bytes.Equal(key.EncapsulationKey().Bytes(), v.hex(t, "public_key_hex")) {
+				key, err := suite.kem().NewPrivateKey(v.hex(t, "seed_hex"))
+				if err != nil || !bytes.Equal(key.PublicKey().Bytes(), v.hex(t, "public_key_hex")) {
 					t.Fatalf("public key from seed: %v", err)
 				}
 				opened, err := suite.DecryptWithLabel(v.hex(t, "seed_hex"), v.str("label"), v.hex(t, "context_hex"),

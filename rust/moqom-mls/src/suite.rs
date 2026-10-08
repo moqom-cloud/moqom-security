@@ -5,10 +5,7 @@ use aws_lc_rs::signature::{self, KeyPair};
 
 use crate::codec::{Reader, Writer};
 use crate::error::{Error, Result};
-use crate::hpke::{
-    Aead, Hpke, Kdf, Kem, MLKEM768_CIPHERTEXT_LENGTH, MLKEM768_PUBLIC_KEY_LENGTH,
-    MLKEM768_SEED_LENGTH,
-};
+use crate::hpke::{Aead, Hpke, Kdf, Kem};
 
 /// An MLS cipher suite identifier, RFC 9420 §17.1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -20,8 +17,7 @@ impl CipherSuite {
     pub const X25519: Self = Self(0x0001);
     /// MLS_128_MLKEM768X25519_AES128GCM_SHA256_Ed25519, draft-ietf-mls-pq-ciphersuites'
     /// first suite (HPKE KEM 0x647a, X-Wing), private-use until IANA assigns
-    /// the draft's value. Key packages in it parse and verify here; HPKE
-    /// under X-Wing does not, since aws-lc-rs has no X-Wing.
+    /// the draft's value.
     pub const XWING: Self = Self(0xF0A1);
     /// MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65, the draft's TBD10: HPKE KEM
     /// 0x0041 (pure ML-KEM-768), HKDF-SHA384, AES-256-GCM and ML-DSA-65
@@ -32,7 +28,6 @@ impl CipherSuite {
 
     const ML_DSA_65_PUBLIC_KEY_LENGTH: usize = 1952;
     const ML_DSA_65_SIGNATURE_LENGTH: usize = 3309;
-    const XWING_PUBLIC_KEY_LENGTH: usize = MLKEM768_PUBLIC_KEY_LENGTH + 32;
 
     /// Whether the suite is one this crate implements.
     #[must_use]
@@ -67,14 +62,20 @@ impl CipherSuite {
         }
     }
 
-    fn hpke(self) -> Result<Hpke> {
-        let kem = match self {
-            Self::MLDSA => Kem::MlKem768,
+    fn kem(self) -> Kem {
+        match self {
             Self::X25519 => Kem::X25519,
-            _ => return Err(Error::Unsupported("HPKE under X-Wing")),
-        };
+            Self::XWING => Kem::XWing,
+            _ => Kem::MlKem768,
+        }
+    }
+
+    fn hpke(self) -> Result<Hpke> {
+        if !self.is_known() {
+            return Err(Error::Unsupported("cipher suite"));
+        }
         Ok(Hpke {
-            kem,
+            kem: self.kem(),
             kdf: self.kdf(),
             aead: self.aead(),
         })
@@ -89,21 +90,13 @@ impl CipherSuite {
     /// An init or leaf encryption key's length, HPKE's Npk.
     #[must_use]
     pub fn public_key_length(self) -> usize {
-        match self {
-            Self::X25519 => 32,
-            Self::XWING => Self::XWING_PUBLIC_KEY_LENGTH,
-            _ => MLKEM768_PUBLIC_KEY_LENGTH,
-        }
+        self.kem().public_key_length()
     }
 
     /// HPKE's Nenc.
     #[must_use]
     pub fn encapsulation_length(self) -> usize {
-        match self {
-            Self::X25519 => 32,
-            Self::XWING => MLKEM768_CIPHERTEXT_LENGTH + 32,
-            _ => MLKEM768_CIPHERTEXT_LENGTH,
-        }
+        self.kem().encapsulation_length()
     }
 
     /// A signature public key's length: 1,952 for ML-DSA-65, 32 for Ed25519.
@@ -239,18 +232,15 @@ impl CipherSuite {
     }
 
     /// A fresh KEM key pair: the private half as RFC 9180's
-    /// SerializePrivateKey gives it (ML-KEM-768's 64-byte seed d || z, or the
-    /// X25519 scalar) and the public half as it travels.
+    /// SerializePrivateKey gives it (ML-KEM-768's 64-byte seed d || z,
+    /// X-Wing's 32-byte seed, or the X25519 scalar) and the public half as it
+    /// travels.
     ///
     /// # Errors
-    /// [`Error::Unsupported`] under X-Wing.
+    /// [`Error::Unsupported`] for a suite not implemented.
     pub fn generate_key_pair(self) -> Result<(Vec<u8>, Vec<u8>)> {
         let kem = self.hpke()?.kem;
-        let private = random(if kem == Kem::MlKem768 {
-            MLKEM768_SEED_LENGTH
-        } else {
-            32
-        });
+        let private = random(kem.private_key_length());
         let public = kem.public_key(&private)?;
         Ok((private, public))
     }
@@ -259,8 +249,8 @@ impl CipherSuite {
     /// returns it.
     ///
     /// # Errors
-    /// [`Error::Unsupported`] under X-Wing, [`Error::CryptoFailure`] for a
-    /// private key that is not one.
+    /// [`Error::Unsupported`] for a suite not implemented,
+    /// [`Error::CryptoFailure`] for a private key that is not one.
     pub fn kem_public_key(self, private: &[u8]) -> Result<Vec<u8>> {
         self.hpke()?.kem.public_key(private)
     }
@@ -269,19 +259,15 @@ impl CipherSuite {
     /// ML-KEM-768 alone or as X-Wing's first half, one FIPS 203's
     /// encapsulation key check accepts.
     pub(crate) fn is_valid_public_key(self, public: &[u8]) -> bool {
-        if public.len() != self.public_key_length() {
-            return false;
-        }
-        self == Self::X25519
-            || Kem::MlKem768.is_valid_public_key(&public[..MLKEM768_PUBLIC_KEY_LENGTH])
+        self.kem().is_valid_public_key(public)
     }
 
     /// EncryptWithLabel, RFC 9420 §5.1.3: HPKE base mode, empty AAD.
     ///
     /// # Errors
     /// [`Error::Malformed`] for a key of the wrong length,
-    /// [`Error::Unsupported`] under X-Wing, [`Error::CryptoFailure`] for a key
-    /// encapsulation refuses.
+    /// [`Error::Unsupported`] for a suite not implemented,
+    /// [`Error::CryptoFailure`] for a key encapsulation refuses.
     pub fn encrypt_with_label(
         self,
         public: &[u8],

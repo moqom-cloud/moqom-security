@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Elliott Wave LLC
 #
-# Copies the MLS working group's published vectors that apply to moqom-mls into
-# this directory, from a pinned commit so that running it again is a no-op.
+# Copies the published vectors that apply to moqom-mls into this directory,
+# each from a pinned commit so that running it again is a no-op: the MLS
+# working group's, the X-Wing draft's, and the HPKE working group's for X-Wing.
 #
 # Only cipher suites 1 and 7 are kept. Suite 1 is RFC 9420's mandatory suite,
 # which moqom-mls implements. Suite 7 is not implemented, but its hash, KDF and
@@ -17,19 +18,27 @@ import urllib.request
 
 COMMIT = "2034fe72e0c805a683ba76165660c834f2a8142a"
 BASE = f"https://raw.githubusercontent.com/mlswg/mls-implementations/{COMMIT}/test-vectors"
+XWING_COMMIT = "984c2f7a93b8f8d8f8073ebb53f9f4ce50b5babd"
+XWING = f"https://raw.githubusercontent.com/dconnolly/draft-connolly-cfrg-xwing-kem/{XWING_COMMIT}/spec/test-vectors.json"
+HPKE_PQ_COMMIT = "6433c8fce0b8b749dfc86c1095081a88698ccfab"
+HPKE_PQ = f"https://raw.githubusercontent.com/hpkewg/hpke-pq/{HPKE_PQ_COMMIT}/test-vectors.json"
 HERE = pathlib.Path(__file__).parent
 
 
-def fetch(name):
-    with urllib.request.urlopen(f"{BASE}/{name}.json") as response:
+def fetch_url(url):
+    with urllib.request.urlopen(url) as response:
         return json.load(response)
 
 
-def write(file, description, name, cases):
+def fetch(name):
+    return fetch_url(f"{BASE}/{name}.json")
+
+
+def write(file, description, name, cases, source=None):
     document = {
         "library": "moqom-mls",
         "description": description,
-        "source": f"{BASE}/{name}.json",
+        "source": source or f"{BASE}/{name}.json",
         "cases": cases,
     }
     (HERE / file).write_text(json.dumps(document, indent=2) + "\n")
@@ -60,4 +69,26 @@ write(
     "RFC 9420 §2.1.2 variable-length vector headers, both directions.",
     "deserialization",
     [{"name": f"header-{e['vlbytes_header']}", **e} for e in fetch("deserialization")],
+)
+write(
+    "xwing-draft.json",
+    "X-Wing KEM (draft-connolly-cfrg-xwing-kem): the public key from the 32-byte seed (sk), and "
+    "decapsulation of ct to ss. eseed, the encapsulation's randomness, cannot be replayed through "
+    "CryptoKit or AWS-LC, so encapsulation is checked by the cross-language files instead.",
+    None,
+    [{"name": f"xwing-{i}", **e} for i, e in enumerate(fetch_url(XWING))],
+    source=XWING,
+)
+write(
+    "hpkewg-xwing.json",
+    "HPKE KEM 0x647a (MLKEM768-X25519, X-Wing) from draft-ietf-hpke-pq, base mode, HKDF-SHA256, "
+    "ChaCha20-Poly1305: the entry with kem_id 25722, kdf_id 1, aead_id 3. pkRm from skRm and "
+    "shared_secret from enc are checked; ChaCha20-Poly1305 is not an MLS suite's AEAD.",
+    None,
+    [
+        {"name": "kem-647a-kdf-1-aead-3", **e}
+        for e in fetch_url(HPKE_PQ)
+        if (e["kem_id"], e["kdf_id"], e["aead_id"], e["mode"]) == (0x647A, 1, 3, 0)
+    ],
+    source=HPKE_PQ,
 )

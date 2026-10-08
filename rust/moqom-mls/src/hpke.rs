@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Elliott Wave LLC
 
-//! RFC 9180 HPKE, base mode, single shot, for the two KEMs implemented here:
-//! ML-KEM-768 (0x0041, draft-ietf-hpke-pq: the shared secret is ML-KEM's) and
-//! DHKEM(X25519, HKDF-SHA256) (0x0020). aws-lc-rs has no HPKE, so this is
-//! RFC 9180 §4 and §5.1 over its KEM, X25519, HKDF and AEAD. The ML-KEM
-//! composition is held to Go's crypto/hpke by the vectors.
+//! RFC 9180 HPKE, base mode, single shot, for the three KEMs implemented here:
+//! ML-KEM-768 (0x0041) and X-Wing (0x647a), whose shared secrets are used as
+//! they are (draft-ietf-hpke-pq), and DHKEM(X25519, HKDF-SHA256) (0x0020).
+//! aws-lc-rs has no HPKE, so this is RFC 9180 §4 and §5.1 over its KEM,
+//! X25519, HKDF and AEAD. The ML-KEM and X-Wing compositions are held to Go's
+//! crypto/hpke and CryptoKit by the vectors.
 
 use aws_lc_rs::{aead, agreement, digest, hkdf, hmac, kem};
 
@@ -18,6 +19,7 @@ pub(crate) const MLKEM768_SEED_LENGTH: usize = 64;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kem {
     MlKem768,
+    XWing,
     X25519,
 }
 
@@ -187,27 +189,48 @@ fn labeled_expand(
 
 const DHKEM_X25519: u16 = 0x0020;
 const MLKEM768: u16 = 0x0041;
+const XWING: u16 = 0x647a;
 
 impl Kem {
     fn id(self) -> u16 {
         match self {
             Self::MlKem768 => MLKEM768,
+            Self::XWing => XWING,
             Self::X25519 => DHKEM_X25519,
+        }
+    }
+
+    pub(crate) fn private_key_length(self) -> usize {
+        match self {
+            Self::MlKem768 => MLKEM768_SEED_LENGTH,
+            Self::XWing => crate::xwing::SEED_LENGTH,
+            Self::X25519 => 32,
         }
     }
 
     pub(crate) fn public_key_length(self) -> usize {
         match self {
             Self::MlKem768 => MLKEM768_PUBLIC_KEY_LENGTH,
+            Self::XWing => crate::xwing::PUBLIC_KEY_LENGTH,
+            Self::X25519 => 32,
+        }
+    }
+
+    pub(crate) fn encapsulation_length(self) -> usize {
+        match self {
+            Self::MlKem768 => MLKEM768_CIPHERTEXT_LENGTH,
+            Self::XWing => crate::xwing::CIPHERTEXT_LENGTH,
             Self::X25519 => 32,
         }
     }
 
     /// The public key for a private key as RFC 9180's SerializePrivateKey
-    /// gives it: ML-KEM-768's 64-byte seed or the X25519 scalar.
+    /// gives it: ML-KEM-768's 64-byte seed, X-Wing's 32-byte seed or the
+    /// X25519 scalar.
     pub(crate) fn public_key(self, private: &[u8]) -> Result<Vec<u8>> {
         match self {
             Self::MlKem768 => Ok(crate::mlkem::from_seed(private)?.1),
+            Self::XWing => crate::xwing::public_key(private),
             Self::X25519 => {
                 let key = agreement::PrivateKey::from_private_key(&agreement::X25519, private)
                     .map_err(|_| Error::CryptoFailure)?;
@@ -220,16 +243,19 @@ impl Kem {
         }
     }
 
-    /// Whether a public key is the KEM's: for ML-KEM-768, whether it passes
-    /// FIPS 203's encapsulation key check, which encapsulation applies.
+    /// Whether a public key is the KEM's: for ML-KEM-768, alone or as
+    /// X-Wing's first half, whether it passes FIPS 203's encapsulation key
+    /// check, which encapsulation applies.
     pub(crate) fn is_valid_public_key(self, public: &[u8]) -> bool {
         if public.len() != self.public_key_length() {
             return false;
         }
         match self {
-            Self::MlKem768 => kem::EncapsulationKey::new(&kem::ML_KEM_768, public)
-                .and_then(|key| key.encapsulate().map_err(Into::into))
-                .is_ok(),
+            Self::MlKem768 | Self::XWing => {
+                kem::EncapsulationKey::new(&kem::ML_KEM_768, &public[..MLKEM768_PUBLIC_KEY_LENGTH])
+                    .and_then(|key| key.encapsulate().map_err(Into::into))
+                    .is_ok()
+            }
             Self::X25519 => true,
         }
     }
@@ -242,6 +268,7 @@ impl Kem {
                 let (enc, shared) = key.encapsulate().map_err(|_| Error::CryptoFailure)?;
                 Ok((shared.as_ref().to_vec(), enc.as_ref().to_vec()))
             }
+            Self::XWing => crate::xwing::encapsulate(public),
             Self::X25519 => {
                 let ephemeral = agreement::PrivateKey::generate(&agreement::X25519)
                     .map_err(|_| Error::CryptoFailure)?;
@@ -272,6 +299,7 @@ impl Kem {
                     .map_err(|_| Error::DecryptionFailed)?;
                 Ok(shared.as_ref().to_vec())
             }
+            Self::XWing => crate::xwing::decapsulate(enc, private),
             Self::X25519 => {
                 let key = agreement::PrivateKey::from_private_key(&agreement::X25519, private)
                     .map_err(|_| Error::DecryptionFailed)?;

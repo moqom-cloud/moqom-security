@@ -232,7 +232,6 @@ fn published_key_schedule() {
 
 #[test]
 fn crypto() {
-    let suite = CipherSuite::MLDSA;
     for v in [
         cases("mls-crypto.json"),
         cases("mls-crypto-go.json"),
@@ -240,6 +239,9 @@ fn crypto() {
     ]
     .concat()
     {
+        let suite = v["cipher_suite"]
+            .as_u64()
+            .map_or(CipherSuite::MLDSA, |s| CipherSuite(s as u16));
         let want = expected_error(&v);
         match string(&v, "op") {
             "expand_with_label" => assert_eq!(

@@ -25,12 +25,16 @@ func TestGenerateVectors(t *testing.T) {
 		t.Skip("MOQOM_MLS_GENERATE is not set")
 	}
 	cryptotest.SetGlobalRandom(t, 0x6d6f716f6d)
+	crypto := generateCrypto(t)
+	group := generateGroup(t)
+	// Drawn last, so that the random stream the files above were made from is unchanged.
+	crypto = append(crypto, generateXWingCrypto(t)...)
 	writeVectors(t, "mls-crypto-go.json",
-		"RFC 9420 §5 SignWithLabel and EncryptWithLabel in suite 0xF0AA as Go's crypto/mldsa and crypto/hpke (KEM 0x0041, KDF 0x0002, AEAD 0x0002) produce them, which is what checks the Swift and Rust compositions of HPKE over ML-KEM-768. Same fields as mls-crypto.json.",
-		generateCrypto(t))
+		"RFC 9420 §5 SignWithLabel and EncryptWithLabel as Go's crypto/mldsa and crypto/hpke produce them, which is what checks the Swift and Rust HPKE compositions: suite 0xF0AA (KEM 0x0041, KDF 0x0002, AEAD 0x0002), and, for cases whose cipher_suite is 61601, suite 0xF0A1 (KEM 0x647a, X-Wing; KDF 0x0001, AEAD 0x0001) with X-Wing's 32-byte seed. Same fields as mls-crypto.json.",
+		crypto)
 	writeVectors(t, "mls-group-go.json",
 		"A group in suite 0xF0AA founded and committed to by Go, followed by one member whose private keys are given. Same fields and rules as mls-group.json.",
-		generateGroup(t))
+		group)
 }
 
 func writeVectors(t *testing.T, file, description string, cases []map[string]any) {
@@ -116,6 +120,32 @@ func generateCrypto(t *testing.T) []map[string]any {
 		with(signed, map[string]any{"name": "go-sign-with-label-tampered", "signature_hex": hex.EncodeToString(flipped(signature, 0)), "error": "bad-signature"}),
 		with(encrypted, map[string]any{"name": "go-encrypt-with-label"}),
 		with(encrypted, map[string]any{"name": "go-encrypt-with-label-tampered", "kem_output_hex": hex.EncodeToString(flipped(sealed.KEMOutput, 0)), "error": "decryption-failed"}),
+	}
+}
+
+func generateXWingCrypto(t *testing.T) []map[string]any {
+	suite := SuiteXWing
+	seed := fixed("go xwing seed", 32)
+	key, err := suite.kem().NewPrivateKey(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := key.PublicKey().Bytes()
+	context := fixed("go xwing context", 40)
+	plaintext := fixed("go xwing joiner secret", 32)
+	sealed, err := suite.EncryptWithLabel(public, "Welcome", context, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted := map[string]any{
+		"op": "encrypt_with_label", "cipher_suite": int(suite), "seed_hex": hex.EncodeToString(seed), "public_key_hex": hex.EncodeToString(public),
+		"label": "Welcome", "context_hex": hex.EncodeToString(context), "plaintext_hex": hex.EncodeToString(plaintext),
+		"kem_output_hex": hex.EncodeToString(sealed.KEMOutput), "ciphertext_hex": hex.EncodeToString(sealed.Ciphertext),
+	}
+	return []map[string]any{
+		with(encrypted, map[string]any{"name": "go-xwing-encrypt-with-label"}),
+		with(encrypted, map[string]any{"name": "go-xwing-encrypt-with-label-tampered-ml-kem", "kem_output_hex": hex.EncodeToString(flipped(sealed.KEMOutput, 0)), "error": "decryption-failed"}),
+		with(encrypted, map[string]any{"name": "go-xwing-encrypt-with-label-tampered-x25519", "kem_output_hex": hex.EncodeToString(flipped(sealed.KEMOutput, -1)), "error": "decryption-failed"}),
 	}
 }
 
