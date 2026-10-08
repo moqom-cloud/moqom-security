@@ -18,6 +18,8 @@ var (
 	ErrNotYetValid      = errors.New("proof is issued in the future")
 	ErrReplayed         = errors.New("proof nonce has already been spent")
 	ErrOverloaded       = errors.New("nonce store is full")
+	// ErrSigning wraps whatever the key returned when it refused to sign.
+	ErrSigning = errors.New("signing the proof failed")
 )
 
 var classes = []struct {
@@ -34,6 +36,7 @@ var classes = []struct {
 	{ErrNotYetValid, "not_yet_valid"},
 	{ErrReplayed, "replayed"},
 	{ErrOverloaded, "overloaded"},
+	{ErrSigning, "signing"},
 }
 
 // Class is the vector error class of err, or "" for nil or an error this

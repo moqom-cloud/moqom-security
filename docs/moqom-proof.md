@@ -247,10 +247,10 @@ deployment that needs to close that gap supplies a shared store.
 | `not_yet_valid` | `ErrNotYetValid` | `NotYetValid` | `.notYetValid` | `iat` is further ahead than the window |
 | `replayed` | `ErrReplayed` | `Replayed` | `.replayed` | The nonce was already spent |
 | `overloaded` | `ErrOverloaded` | `Overloaded` | `.overloaded` | The nonce store cannot remember another |
-| `signing` | the signer's own error | `Signing` | `.notSigned` | Proving only: the key refused to sign |
+| `signing` | `ErrSigning` | `Signing` | `.notSigned` | Proving only: the key refused to sign |
 
-`Class` in Go returns `""` for an error that is not one of the above, which
-includes a signer's own error.
+Go's `ErrSigning` wraps the signer's own error, so `errors.Is` finds both.
+`Class` in Go returns `""` for an error that is not one of the above.
 
 ## Vectors
 

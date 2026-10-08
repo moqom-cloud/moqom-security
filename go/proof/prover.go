@@ -122,7 +122,7 @@ func (p *Prover) Prove(token, certificateHash []byte, nonce string, issuedAt tim
 	signed := b64.EncodeToString([]byte(p.header)) + "." + b64.EncodeToString([]byte(claims))
 	signature, err := p.sign([]byte(signed))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrSigning, err)
 	}
 	return []byte(signed + "." + b64.EncodeToString(signature)), nil
 }

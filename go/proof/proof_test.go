@@ -4,8 +4,14 @@
 package proof
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/mldsa"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +107,39 @@ func TestAProofNeedsANonce(t *testing.T) {
 	}
 	if NewNonce() == NewNonce() {
 		t.Error("two nonces are the same")
+	}
+}
+
+var errRefused = errors.New("the key refused")
+
+// refusingSigner holds a public key and refuses every signature, as a locked
+// hardware key does.
+type refusingSigner struct{ public crypto.PublicKey }
+
+func (s refusingSigner) Public() crypto.PublicKey { return s.public }
+
+func (refusingSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error) {
+	return nil, errRefused
+}
+
+func TestASignerThatRefusesIsClassedSigning(t *testing.T) {
+	ml, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	if err != nil {
+		t.Fatal(err)
+	}
+	es, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, public := range []crypto.PublicKey{ml.Public(), es.Public()} {
+		prover, err := NewProver(refusingSigner{public})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = prover.Prove([]byte("t"), certificate[:], NewNonce(), testNow)
+		if !errors.Is(err, ErrSigning) || !errors.Is(err, errRefused) || Class(err) != "signing" {
+			t.Errorf("%s: Prove() = %v (%q), want ErrSigning wrapping the signer's error", prover.Algorithm(), err, Class(err))
+		}
 	}
 }
 
