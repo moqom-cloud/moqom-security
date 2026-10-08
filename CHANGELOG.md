@@ -26,6 +26,17 @@ The first release.
 - Accepts ES256 proofs from older SDKs.
 - Refuses proofs whose JWK carries private key members, and proofs naming a certificate when the
   checker has none to compare; `requireCertificate` makes the certificate mandatory.
+- Reads a proof's header, key and claims alike in all three languages: one JSON object of valid
+  UTF-8, member names matched exactly, and `malformed` for a member named twice at any depth,
+  `null` for a known member, an `iat` that is not an integer literal, an unpaired surrogate
+  escape, a number too large for a double, or nesting deeper than 127.
+- Remembers each nonce until the later of the caller's `until` and one second past the end of
+  the proof's window, so a short `until` cannot let a proof in twice.
+- A checker or store that cannot work is refused when it is made, with the `configuration`
+  error class: no nonce store, no algorithms, or a window or capacity that is not positive.
+  Each language has a constructor with the defaults (Swift `Checker(store:)` and
+  `MemoryNonceStore()`, Go `NewChecker` and `NewDefaultMemoryNonceStore`, Rust `Checker::new`
+  and `MemoryNonceStore::default`).
 
 ### moqom-sframe
 

@@ -33,8 +33,10 @@ All three pass every case in [`vectors/proof`](../vectors/proof).
   certificate (Go `RequireCertificate`, Rust `with_certificate_required`,
   Swift `requireCertificate:`) refuses every proof when it has none.
 - **Single use.** `jti` is a fresh 128-bit nonce. The checker spends it in a
-  caller-supplied `NonceStore` until the token expires. A second proof over
-  the same token with a new nonce is a new session, not a replay.
+  caller-supplied `NonceStore` until the token expires, and never for less
+  than the proof's window: until the later of the caller's `until` and one
+  second past `iat` plus the window. A second proof over the same token with a
+  new nonce is a new session, not a replay.
 - **Fresh.** `iat` must be within a window (default five minutes) of the
   checker's clock, either way.
 - **Two algorithms.** ML-DSA-65 (FIPS 204) is the default and the only
@@ -59,16 +61,40 @@ All three pass every case in [`vectors/proof`](../vectors/proof).
 Swift's `MoqomKit.DeviceKey` chooses: an enclave key when
 `SecureEnclave.isAvailable` and creation succeeds, otherwise a software key.
 
-ML-DSA-65 signing is deterministic in Go and Rust, so the vectors reproduce
-those proofs byte for byte. CryptoKit signs with hedged randomness, and ES256
-is randomised everywhere. For those, the vectors give proofs to verify, not
-proofs to reproduce.
+Every prover signs with fresh randomness: hedged ML-DSA-65 (FIPS 204's
+default) in CryptoKit, Go's `crypto/mldsa` and aws-lc-rs, and ECDSA with a
+random per-signature nonce. Go's `Prover.Deterministic()` returns a copy that
+signs deterministically instead, ML-DSA-65's deterministic variant and RFC 6979
+for ECDSA, and it is how `go/proof/generate_test.go` makes the vectors
+reproducible. Swift and Rust have no deterministic mode, so for them the
+vectors are proofs to verify, not proofs to reproduce.
 
 ## Wire format
 
 A proof is a compact JWS: `base64url(header) "." base64url(claims) "."
 base64url(signature)`. Base64url has no padding and is strict: the unused bits
 of the last character must be zero.
+
+The header, the key inside it and the claims are each one JSON object, read the
+same way in every language, so that no two parsers can disagree about what a
+proof says:
+
+- The bytes are UTF-8, and a `\u` escape of a surrogate is half of a pair.
+- No object, at any depth, names a member twice. Names are compared after
+  unescaping and byte for byte, so `jti` and `j\u0074i` are the same name and
+  `jti` and `JTI` are not. Go's `encoding/json` keeps the last of a duplicate
+  and matches struct fields regardless of case; neither is allowed to decide.
+- A known member (`alg`, `typ`, `jwk`; `kty`, `alg`, `pub`, `crv`, `x`, `y`;
+  `ath`, `iat`, `jti`, `rel`) has its type or is absent. `null` is refused, not
+  read as absent.
+- `iat` is an integer literal that fits in 64 bits: no fraction, no exponent,
+  so `1.7e9` and `1700000000.0` are refused.
+- No number is too large for a double (`1e400`), and arrays and objects nest
+  at most 127 deep, the outermost object included: `serde_json`'s limits, kept
+  by all three.
+- Other members are ignored.
+
+Anything else is `malformed`.
 
 Header:
 
@@ -133,20 +159,22 @@ capped at 16 KiB, which fits an AKP key and three names of the maximum length.
 ## Check order
 
 1. Length is 1 to 16 KiB (`malformed`).
-2. Three segments, base64url, a JSON header (`malformed`).
+2. Three segments, base64url, and a header that is JSON as above, its key's
+   members included (`malformed`).
 3. `typ` is `MOQT-POP` and `alg` is an accepted algorithm (`unsupported`).
 4. The header has a `jwk` with no private member (`malformed`), whose key type
    matches `alg` (`unsupported`) and is well formed (`malformed`).
 5. The signature verifies under that key (`bad_signature`).
 6. The key's thumbprint equals the token's `cnf.jkt` (`wrong_key`).
-7. The claims are JSON (`malformed`).
+7. The claims are JSON as above (`malformed`).
 8. `ath` matches the token (`wrong_token`).
 9. The checker has a certificate if it requires one, and `rel` matches its
    certificate hash, or is empty when it has none (`wrong_certificate`).
 10. `iat` is present (`malformed`) and within the window: too old is
     `expired`, too far ahead is `not_yet_valid`.
-11. `jti` is present (`malformed`) and is spent in the store until the token
-    expires (`replayed`, `overloaded`).
+11. `jti` is present (`malformed`) and is spent in the store until the later
+    of `until` (the token's expiry) and one second past `iat` plus the window
+    (`replayed`, `overloaded`).
 
 ## API
 
@@ -160,18 +188,24 @@ device.JWK()        // proof.JWK, sent to /join
 device.Thumbprint() // the token's cnf.jkt
 p, err := device.Prove(token, certHash[:], proof.NewNonce(), time.Now())
 
-checker := &proof.Checker{
-    Store: proof.NewMemoryNonceStore(proof.DefaultCapacity),
-    // Algorithms: []proof.Algorithm{proof.MLDSA65}, // default: both
-    // Window: proof.DefaultWindow,
-    // RequireCertificate: true, // refuse everything when certHash is empty
-}
+checker, err := proof.NewChecker(proof.NewDefaultMemoryNonceStore(),
+    // proof.WithAlgorithms(proof.MLDSA65), // default: both
+    // proof.WithWindow(proof.DefaultWindow),
+    // proof.WithCertificateRequired(true), // refuse everything when certHash is empty
+)
 err = checker.Check(p, token, certHash[:], jkt, time.Now(), tokenExpiry)
 proof.Class(err) // "wrong_certificate", as in the vectors
 ```
 
+`NewChecker` refuses a nil store, and the options refuse no algorithms, an
+unknown algorithm, and a window that is not positive, all with
+`ErrConfiguration`. Leaving an option out gives its default. A zero `Checker`
+or `MemoryNonceStore` (not made by its constructor) refuses everything with
+`ErrConfiguration`. `Checker` has `Store()`, `Algorithms()`, `Window()` and
+`CertificateRequired()`.
+
 `JWK` has `Algorithm()` and `Thumbprint()`. `Prover.Deterministic()` returns a
-prover that signs ML-DSA-65 deterministically (vector generation). Go passes
+prover that signs deterministically (vector generation). Go passes
 the certificate hash as a slice. An empty slice binds to no certificate and
 only matches a proof that also named none, as `None` does in Rust and `nil` in
 Swift. `NonceStore` is one method:
@@ -187,9 +221,9 @@ device.jwk_json();   // sent to /join
 device.thumbprint(); // the token's cnf.jkt
 let proof = device.prove(token, &cert_hash, &nonce()?, SystemTime::now())?;
 
-let checker = Checker::new(MemoryNonceStore::new(DEFAULT_CAPACITY))
-    .with_algorithms(&Algorithm::ALL)
-    .with_window(moqom_proof::DEFAULT_WINDOW)
+let checker = Checker::new(MemoryNonceStore::default()) // or MemoryNonceStore::new(capacity)?
+    .with_algorithms(&Algorithm::ALL)?
+    .with_window(moqom_proof::DEFAULT_WINDOW)?
     .with_certificate_required(true);
 checker.check(&proof, token, Some(&cert_hash), &jkt, SystemTime::now(), expiry)?;
 // Err(moqom_proof::Error::WrongCertificate); error.class() == "wrong_certificate"
@@ -197,7 +231,10 @@ checker.check(&proof, token, Some(&cert_hash), &jkt, SystemTime::now(), expiry)?
 
 `Jwk` has `ml_dsa_65(pub)`, `p256(x, y)`, `algorithm()`, `canonical()` and
 `thumbprint()`. `Prover` also has `to_pkcs8`, `algorithm`, `jwk` and
-`public_key`. `NonceStore` is a `Send + Sync` trait with
+`public_key`. `MemoryNonceStore::new` refuses a capacity of zero,
+`with_algorithms` an empty slice and `with_window` a zero window, with
+`Error::Configuration`. `Checker` has `store`, `algorithms`, `window` and
+`certificate_required`. `NonceStore` is a `Send + Sync` trait with
 `spend(&self, nonce, until, now)`, implemented for `Arc<S>`. The constants are
 `PROOF_TYPE`, `MAX_PROOF_BYTES`, `DEFAULT_WINDOW` and `DEFAULT_CAPACITY`.
 
@@ -212,14 +249,17 @@ device.jwk         // ProofJWK, sent to /join
 device.thumbprint  // the token's cnf.jkt
 let proof = try device.prove(token: token, certificateHash: certHash, nonce: Prover.nonce())
 
-let checker = Checker(store: MemoryNonceStore())  // algorithms:, window:, requireCertificate: optional
+let checker = Checker(store: MemoryNonceStore())  // the defaults; cannot fail
+// try Checker(store:algorithms:window:requireCertificate:), try MemoryNonceStore(capacity:)
 try checker.check(proof, token: token, certificateHash: certHash,
                   thumbprint: jkt, now: Date(), until: expiry)
 // throws(ProofError): .wrongCertificate; error.errorClass == "wrong_certificate"
 ```
 
-`ProofJWK` is `Codable` and has `algorithm()`, `canonical()` and
-`thumbprint()`. `NonceStore` is a `Sendable` protocol with
+The throwing initialisers refuse no algorithms, a window that is not a
+positive number of seconds, and a capacity that is not positive, with
+`ProofError.configuration`. `ProofJWK` is `Codable` and has `algorithm()`,
+`canonical()` and `thumbprint()`. `NonceStore` is a `Sendable` protocol with
 `spend(_:until:now:) throws(ProofError)`. The constants are `proofType`,
 `Checker.maximumProofBytes`, `Checker.defaultWindow` and
 `MemoryNonceStore.defaultCapacity`.
@@ -227,8 +267,9 @@ try checker.check(proof, token: token, certificateHash: certHash,
 ### Nonce stores
 
 `MemoryNonceStore` remembers nonces in memory until each one's `until`, up to a
-capacity (default 100,000). When full it refuses with `overloaded` rather than
-evicting, because evicting would choose which proof becomes replayable. It
+capacity (default 100,000, and it must be positive). When full it refuses with
+`overloaded` rather than evicting, because evicting would choose which proof
+becomes replayable. It
 forgets everything on restart, so a proof captured and never delivered could
 be replayed after a restart, within its window and its token's lifetime. A
 deployment that needs to close that gap supplies a shared store.
@@ -248,6 +289,7 @@ deployment that needs to close that gap supplies a shared store.
 | `replayed` | `ErrReplayed` | `Replayed` | `.replayed` | The nonce was already spent |
 | `overloaded` | `ErrOverloaded` | `Overloaded` | `.overloaded` | The nonce store cannot remember another |
 | `signing` | `ErrSigning` | `Signing` | `.notSigned` | Proving only: the key refused to sign |
+| `configuration` | `ErrConfiguration` | `Configuration(why)` | `.configuration(why)` | Making a checker or store: no store, no algorithms, or a window or capacity that is not positive |
 
 Go's `ErrSigning` wraps the signer's own error, so `errors.Is` finds both.
 `Class` in Go returns `""` for an error that is not one of the above.
@@ -261,14 +303,16 @@ times are Unix seconds in `now`.
   scalars, with the public JWK and thumbprint each must produce.
 - `thumbprints.json` (13 cases): RFC 7638 and AKP thumbprints, and 9 keys that
   have none (`malformed` 4, `unsupported` 5).
-- `proofs.json` (66 cases): proofs to check against `token`,
+- `proofs.json` (101 cases): proofs to check against `token`,
   `certificate_hash_hex`, `thumbprint` and `now`, with nonces in `spent`
   already spent, until `until`, at a checker that requires a certificate if
   `require_certificate` is set. An empty `certificate_hash_hex` is a checker
-  with none. 57 must be refused: `malformed` 23 (6 of them keys carrying a
-  private member), `unsupported` 7, `bad_signature` 6, `wrong_key` 4,
-  `wrong_token` 3, `wrong_certificate` 8 (4 of them at a checker with no
-  certificate), `expired` 2, `not_yet_valid` 2, `replayed` 2.
+  with none. 14 are valid, and 87 must be refused: `malformed` 53 (6 of them
+  keys carrying a private member, 30 of them headers or claims that JSON
+  parsers could read differently, all signed), `unsupported` 7,
+  `bad_signature` 6, `wrong_key` 4, `wrong_token` 3, `wrong_certificate` 8 (4
+  of them at a checker with no certificate), `expired` 2, `not_yet_valid` 2,
+  `replayed` 2.
 
 They are generated by `go/proof/generate_test.go`. The products also share an
 interop fixture, `moqom-relay/tests/testdata/possession.json` in the engine.
@@ -280,6 +324,10 @@ control plane and the Swift client all read it.
 - `MemoryNonceStore` does not survive a restart and is not shared between
   relays. `rel` limits a captured proof to the relay it was made for, but a
   restart of that relay reopens the window.
+- Checkers that share a store but not a clock can disagree about when a nonce
+  may be forgotten: a store swept by a checker whose clock runs ahead can let
+  a checker whose clock runs behind accept the proof again, for as long as the
+  clocks differ.
 - The window is symmetric and fixed per checker. There is no server-supplied
   nonce (RFC 9449 `DPoP-Nonce`), so freshness depends on the device clock
   being within the window.
