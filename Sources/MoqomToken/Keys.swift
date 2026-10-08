@@ -84,7 +84,7 @@ public struct PublicKey: Hashable, Sendable {
     }
 
     /// Why a JWK set or a raw key was refused. Each is one of the error
-    /// classes the key set vectors name; see ``vectorClass``.
+    /// classes the key set vectors name; see ``errorClass``.
     public enum SetError: Error, Hashable, Sendable, CustomStringConvertible {
         /// Not a JWK set: not JSON, not an array or `{"keys": [...]}`, a key
         /// that is not an object, a member that is null, of the wrong type or
@@ -100,7 +100,7 @@ public struct PublicKey: Hashable, Sendable {
         /// accident.
         case duplicateKeyID(String)
 
-        public var vectorClass: String {
+        public var errorClass: String {
             switch self {
             case .malformed: "set_malformed"
             case .unsupported: "key_unsupported"

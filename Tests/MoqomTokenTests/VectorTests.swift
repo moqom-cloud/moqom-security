@@ -106,7 +106,7 @@ struct VectorTests {
                 let want = try Claims(json: try #require(expected[c.name]))
                 #expect(verified == want, "\(c.name)")
             case let .failure(error):
-                #expect(error.vectorClass == c.error, "\(c.name): \(error)")
+                #expect(error.errorClass == c.error, "\(c.name): \(error)")
             }
         }
     }
@@ -122,7 +122,7 @@ struct VectorTests {
             do {
                 signed = try signer.sign(claims)
             } catch {
-                #expect((error as? TokenError)?.vectorClass == c.error, "\(c.name): \(error)")
+                #expect((error as? TokenError)?.errorClass == c.error, "\(c.name): \(error)")
                 continue
             }
             #expect(c.error == nil, "\(c.name): signed, want \(c.error ?? "")")
@@ -170,7 +170,7 @@ struct VectorTests {
                     Issue.record("\(error)")
                     continue
                 }
-                #expect(error.vectorClass == "key_invalid")
+                #expect(error.errorClass == "key_invalid")
             }
         }
         do {
@@ -191,7 +191,7 @@ struct VectorTests {
                 #expect(c.error == nil, "\(c.name): accepted, want \(c.error ?? "")")
                 #expect(keys.map(\.id) == c.kids, "\(c.name)")
             case let .failure(error):
-                #expect(error.vectorClass == c.error, "\(c.name): \(error)")
+                #expect(error.errorClass == c.error, "\(c.name): \(error)")
             }
         }
     }

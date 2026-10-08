@@ -33,7 +33,7 @@ public enum TokenLimits {
 /// Why a token was refused, to sign or to verify.
 ///
 /// Each is one of the error classes the shared vectors name; see
-/// ``vectorClass``. The descriptions are the relay's wording.
+/// ``errorClass``. The descriptions are the relay's wording.
 public enum TokenError: Error, Hashable, Sendable, CustomStringConvertible {
     /// Not a well-formed token, or claims that cannot be encoded.
     case malformed(String)
@@ -58,7 +58,7 @@ public enum TokenError: Error, Hashable, Sendable, CustomStringConvertible {
     /// `cnf.jkt` is not an RFC 7638 SHA-256 thumbprint.
     case thumbprint
 
-    public var vectorClass: String {
+    public var errorClass: String {
         switch self {
         case .malformed: "malformed"
         case .unsupported: "unsupported"

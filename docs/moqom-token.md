@@ -246,7 +246,7 @@ let jws = try signer.sign(Claims(
 let keys = try PublicKey.parseSet(document)              // throws(PublicKey.SetError)
 let verifier = Verifier(issuer: iss, tenant: "acme", keys: keys)
 let claims = try verifier.verify(jws, now: Date())        // throws(TokenError)
-// TokenError.expired, …; error.vectorClass == "expired"
+// TokenError.expired, …; error.errorClass == "expired"
 ```
 
 `PublicKey(id:algorithm:rawRepresentation:)`, which throws
@@ -254,7 +254,7 @@ let claims = try verifier.verify(jws, now: Date())        // throws(TokenError)
 `isValidSignature(_:for:)` and `jwk`. `Signer` has `keyID`, `seed`,
 `publicKey` and `signature(for:)`. `Verifier` has `isEmpty` and `key(_:)`.
 `PublicKey.SetError` is `.malformed(why)`, `.unsupported(kid:)`,
-`.invalid(kid:reason:)` or `.duplicateKeyID(kid)`, and its `vectorClass` names
+`.invalid(kid:reason:)` or `.duplicateKeyID(kid)`, and its `errorClass` names
 it. `TokenLimits` holds the type, the maximum lifetime, the clock skew and the
 maximum length.
 
