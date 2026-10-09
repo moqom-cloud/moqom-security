@@ -25,7 +25,7 @@ let package = Package(
         .target(name: "MoqomProof", swiftSettings: strict),
         .target(name: "MoqomSFrame", swiftSettings: strict),
         .target(name: "MoqomMLS", dependencies: ["MoqomSFrame"], swiftSettings: strict),
-        .testTarget(name: "MoqomTokenTests", dependencies: ["MoqomToken"], swiftSettings: strict),
+        .testTarget(name: "MoqomTokenTests", dependencies: ["MoqomToken", "MoqomProof"], swiftSettings: strict),
         .testTarget(name: "MoqomProofTests", dependencies: ["MoqomProof"], swiftSettings: strict),
         .testTarget(name: "MoqomSFrameTests", dependencies: ["MoqomSFrame"], swiftSettings: strict),
         .testTarget(name: "MoqomMLSTests", dependencies: ["MoqomMLS", "MoqomSFrame"], swiftSettings: strict),
