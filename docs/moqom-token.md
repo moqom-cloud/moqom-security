@@ -3,10 +3,10 @@
 
 # moqom-token
 
-The MOQOM access token: a compact JWS that the control plane signs and that
+The MOQOM access token: a compact [JWS](https://www.rfc-editor.org/rfc/rfc7515) that the control plane signs and that
 relays and direct-path peers verify. A token says who someone is (tenant, user
 and the device key they hold), which room they may join and what they may do
-there, and for how long. It is signed with ML-DSA-65 (FIPS 204). Ed25519 keys
+there, and for how long. It is signed with ML-DSA-65 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)). Ed25519 keys
 can still verify, but nothing signs with them, so tokens minted before the
 move to ML-DSA keep working until they expire.
 
@@ -16,7 +16,7 @@ All three pass every case in [`vectors/token`](../vectors/token).
 
 ## What it does
 
-- **Signs and verifies, nothing else.** A `Signer` holds one ML-DSA-65 key and
+- **Signs and verifies, nothing else.** A `Signer` holds one [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) key and
   its key ID (`kid`). A `Verifier` holds a set of public keys, an issuer, and
   optionally a tenant. `verify(token, now)` returns the claims only if every
   check passes. No API returns claims from a token that has not been
@@ -33,13 +33,13 @@ All three pass every case in [`vectors/token`](../vectors/token).
   longer than 900 seconds, or whose expiry is not after its issue time. A
   verifier refuses one that would last longer: `exp − iat > 900` when it has an
   issue time, or `exp − now > 930` when it has none.
-- **Bound to a device.** `cnf.jkt` is the RFC 7638 SHA-256 thumbprint of the
+- **Bound to a device.** `cnf.jkt` is the [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638) SHA-256 thumbprint of the
   device key the token was issued to: 43 characters of canonical unpadded
   base64url, decoding to 32 bytes. A signer refuses to mint, and a verifier
   refuses to accept, a token whose `jkt` is anything else (`thumbprint`),
   because no proof of possession could match it. The proof that a session
   holds that key is `moqom-proof`'s job, not this library's.
-- **Key sets.** JWK sets are read either as a bare array or wrapped in
+- **Key sets.** [JWK](https://www.rfc-editor.org/rfc/rfc7517) sets are read either as a bare array or wrapped in
   `{"keys": [...]}`. The whole document is read first, as strict JSON under
   the same rules as a token's segments (see Parsing rules): member names are
   exact, a `null` or repeated member is refused, each key is an object, and
@@ -54,7 +54,7 @@ All three pass every case in [`vectors/token`](../vectors/token).
 - **Raw signatures for protocols that share the key.** `SignMessage` (Go),
   `sign_message` (Rust) and `signature(for:)` (Swift) sign arbitrary bytes with
   the token key; the room control log uses this. The caller owns domain
-  separation, and the message must never be a valid JWS signing input.
+  separation, and the message must never be a valid [JWS](https://www.rfc-editor.org/rfc/rfc7515) signing input.
 
 What stays in the products, because it is a rule about the product rather than
 about a token:
@@ -114,7 +114,7 @@ same way in every language, so that no two parsers can disagree about what a
 token says. Anything else is malformed (`header is not JSON`, `claims are not
 JSON`), even when the signature is good:
 
-- Each segment is one JSON object (RFC 8259), with only whitespace around it:
+- Each segment is one JSON object ([RFC 8259](https://www.rfc-editor.org/rfc/rfc8259)), with only whitespace around it:
   not an array, a string or `null`, and no byte order mark.
 - The bytes are UTF-8 (no overlong forms or encoded surrogates), a `\u`
   escape of a surrogate is half of a pair, and a string holds no raw control
@@ -306,7 +306,7 @@ Loading a key set, or a raw key (the `key_invalid` row):
 
 | Class | Go | Rust (`KeyError`) | Swift (`PublicKey.SetError`) | Meaning |
 | --- | --- | --- | --- | --- |
-| `set_malformed` | `ErrKeySetMalformed` | `Malformed(why)` | `.malformed(why)` | Not a JWK set, a `null`, mistyped or repeated member, or a key with no `kty` or `kid` |
+| `set_malformed` | `ErrKeySetMalformed` | `Malformed(why)` | `.malformed(why)` | Not a [JWK](https://www.rfc-editor.org/rfc/rfc7517) set, a `null`, mistyped or repeated member, or a key with no `kty` or `kid` |
 | `key_unsupported` | `ErrKeyUnsupported` | `Unsupported { kid }` | `.unsupported(kid:)` | Not `AKP` / `ML-DSA-65` or `OKP` / `Ed25519` |
 | `key_invalid` | `ErrKeyInvalid` | `Invalid { kid, reason }`, `Seed` | `.invalid(kid:reason:)` | Public key not canonical base64url or the wrong length; a bad seed |
 | `duplicate_kid` | `ErrDuplicateKeyID` | `DuplicateKeyId(kid)` | `.duplicateKeyID(kid)` | Two keys in the set share a `kid` |
@@ -330,7 +330,7 @@ seed and public key.
 - `verify.json` has 120 cases. Each gives a token, a time, an issuer, a tenant
   and a key set, together with either the claims it yields or the error class.
   They cover:
-  - valid ML-DSA-65 tokens and the legacy Ed25519 ones;
+  - valid [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) tokens and the legacy Ed25519 ones;
   - rotation;
   - expiry and not-yet-valid, each at the skew boundary;
   - wrong `kid`;
@@ -359,7 +359,7 @@ seed and public key.
     and a 16-character device ID.
 - `sign.json` has 18 cases: five valid claim sets with their exact signing
   input and a deterministic token, and thirteen that a signer must refuse.
-- `keysets.json` has 49 cases. Each gives a JWK set document and either the
+- `keysets.json` has 49 cases. Each gives a [JWK](https://www.rfc-editor.org/rfc/rfc7517) set document and either the
   key IDs it yields, in order, or the error class. They cover both shapes, the
   empty set, ignored members, duplicate key IDs (byte for byte), every
   `set_malformed` cause, the parsing rules where a key set can break them

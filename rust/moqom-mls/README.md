@@ -3,11 +3,11 @@
 
 # moqom-mls
 
-Group key agreement for MOQOM rooms: the subset of MLS ([RFC 9420]) the
-devices in a room use to agree a secret each epoch, and the SFrame base key
+Group key agreement for MOQOM rooms: the subset of MLS ([[RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)]) the
+devices in a room use to agree a secret each epoch, and the [SFrame](https://www.rfc-editor.org/rfc/rfc9605) base key
 ([RFC 9605] §5.2) every member encrypts media under. New groups are founded in
-`MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65` (`0xF0AA`): ML-KEM-768 key
-encapsulation and ML-DSA-65 signatures. Groups founded in X-Wing (`0xF0A1`)
+`MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65` (`0xF0AA`): [ML-KEM-768](https://csrc.nist.gov/pubs/fips/203/final) key
+encapsulation and [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) signatures. Groups founded in X-Wing (`0xF0A1`)
 or `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (`0x0001`) still work.
 
 ```rust

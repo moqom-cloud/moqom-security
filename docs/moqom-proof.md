@@ -4,14 +4,14 @@
 # moqom-proof
 
 Device proof of possession for MOQOM sessions. A join token names a device key
-by its JWK thumbprint (`cnf.jkt`, see [moqom-token](moqom-token.md)). A token on
+by its [JWK](https://www.rfc-editor.org/rfc/rfc7517) thumbprint (`cnf.jkt`, see [moqom-token](moqom-token.md)). A token on
 its own is a bearer credential: whoever copies it can use it. A proof turns it
 into a sender-constrained one. At connect, and again with every in-session
 token renewal, the device signs a fresh single-use proof. The proof commits to
 the token, to the TLS certificate of the peer it is talking to, and to the time.
 The peer checks that the proof was signed by the key the token names.
 
-Proofs follow the shape of RFC 9449 (DPoP), adapted to a MoQ session instead of
+Proofs follow the shape of [RFC 9449](https://www.rfc-editor.org/rfc/rfc9449) (DPoP), adapted to a MoQ session instead of
 an HTTP request. There is no `htm`/`htu`; the peer's certificate takes their
 place.
 
@@ -39,11 +39,11 @@ All three pass every case in [`vectors/proof`](../vectors/proof).
   new nonce is a new session, not a replay.
 - **Fresh.** `iat` must be within a window (default five minutes) of the
   checker's clock, either way.
-- **Two algorithms.** ML-DSA-65 (FIPS 204) is the default and the only
+- **Two algorithms.** ML-DSA-65 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)) is the default and the only
   algorithm new devices generate. ES256 (P-256) is still accepted while
   devices holding older keys roll over. A checker can be limited to a subset.
 - **The algorithm belongs to the key.** The header's `alg` must match the
-  embedded JWK's key type. Anything else is `unsupported`.
+  embedded [JWK](https://www.rfc-editor.org/rfc/rfc7517)'s key type. Anything else is `unsupported`.
 - **Signature first.** No claim is read before the signature has verified
   against the embedded key and that key's thumbprint has matched the token's
   `cnf.jkt`. The nonce is spent only after every other check passes, so a
@@ -51,7 +51,7 @@ All three pass every case in [`vectors/proof`](../vectors/proof).
 
 ## Device keys
 
-| Platform | ML-DSA-65 key | ES256 key (rollover only) |
+| Platform | [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) key | ES256 key (rollover only) |
 | --- | --- | --- |
 | Swift, device with a Secure Enclave | `SecureEnclave.MLDSA65.PrivateKey` | `SecureEnclave.P256.Signing.PrivateKey` |
 | Swift, no enclave (macOS without one, tests) | `MLDSA65.PrivateKey` | `P256.Signing.PrivateKey` |
@@ -64,14 +64,14 @@ Swift's `MoqomKit.DeviceKey` chooses: an enclave key when
 Every prover signs with fresh randomness: hedged ML-DSA-65 (FIPS 204's
 default) in CryptoKit, Go's `crypto/mldsa` and aws-lc-rs, and ECDSA with a
 random per-signature nonce. Go's `Prover.Deterministic()` returns a copy that
-signs deterministically instead, ML-DSA-65's deterministic variant and RFC 6979
+signs deterministically instead, ML-DSA-65's deterministic variant and [RFC 6979](https://www.rfc-editor.org/rfc/rfc6979)
 for ECDSA, and it is how `go/proof/generate_test.go` makes the vectors
 reproducible. Swift and Rust have no deterministic mode, so for them the
 vectors are proofs to verify, not proofs to reproduce.
 
 ## Wire format
 
-A proof is a compact JWS: `base64url(header) "." base64url(claims) "."
+A proof is a compact [JWS](https://www.rfc-editor.org/rfc/rfc7515): `base64url(header) "." base64url(claims) "."
 base64url(signature)`. Base64url has no padding and is strict: the unused bits
 of the last character must be zero.
 
@@ -112,9 +112,9 @@ Header:
 ```
 
 - `typ` is always `MOQT-POP`.
-- `jwk` is the device's public key. For ML-DSA-65 this is `kty` `AKP`, `alg`
+- `jwk` is the device's public key. For [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) this is `kty` `AKP`, `alg`
   `ML-DSA-65` and `pub`, the 1,952-byte raw public key in base64url
-  (draft-ietf-cose-dilithium). For ES256 it is an RFC 7517 EC key with 32-byte
+  ([draft-ietf-cose-dilithium](https://datatracker.ietf.org/doc/draft-ietf-cose-dilithium/)). For ES256 it is an [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517) EC key with 32-byte
   coordinates in canonical base64url. Any other length or spelling is
   `malformed`. So is a `jwk` with a private member (`d`, `p`, `q`, `dp`, `dq`,
   `qi`, `oth`, `k`, `priv` or `seed`), whatever its value, even `null`: the
@@ -135,8 +135,8 @@ context. For ES256 it is the 64-byte `r || s`.
 The token's `cnf.jkt` is the base64url SHA-256 of the key's canonical JSON:
 members in lexicographic order, no whitespace.
 
-- EC P-256 (RFC 7638): `{"crv":"P-256","kty":"EC","x":"…","y":"…"}`
-- AKP ML-DSA-65 (draft-ietf-cose-dilithium): `{"alg":"ML-DSA-65","kty":"AKP","pub":"…"}`
+- EC P-256 ([RFC 7638](https://www.rfc-editor.org/rfc/rfc7638)): `{"crv":"P-256","kty":"EC","x":"…","y":"…"}`
+- AKP [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) ([draft-ietf-cose-dilithium](https://datatracker.ietf.org/doc/draft-ietf-cose-dilithium/)): `{"alg":"ML-DSA-65","kty":"AKP","pub":"…"}`
 
 A key that is the wrong size, non-canonically spelled, or of a different curve
 or algorithm has no thumbprint. That is `malformed` or `unsupported`, as
@@ -148,14 +148,14 @@ the [thumbprint vectors](../vectors/proof/thumbprints.json) list.
   length-prefixed) of CLIENT_SETUP. The relay checks it against its own leaf
   certificate. Each in-session renewal carries a new proof for the new token.
   Direct-path peers exchange proofs the same way in their SETUP messages.
-- **/join.** The device sends its public JWK (`key`) so the control plane
+- **/join.** The device sends its public [JWK](https://www.rfc-editor.org/rfc/rfc7517) (`key`) so the control plane
   derives `cnf.jkt` itself rather than trusting a thumbprint it is given.
 
 ### Sizes
 
-| | ML-DSA-65 | ES256 |
+| | [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) | ES256 |
 | --- | --- | --- |
-| Public JWK | about 2.65 KB | about 120 B |
+| Public [JWK](https://www.rfc-editor.org/rfc/rfc7517) | about 2.65 KB | about 120 B |
 | Proof | about 8.2 KB (8,194 B in the interop fixture) | about 0.5 KB |
 
 Every checker refuses a proof longer than 16 KiB before parsing it. A MOQT
@@ -307,9 +307,9 @@ Go's `ErrSigning` wraps the signer's own error, so `errors.Is` finds both.
 [`vectors/proof`](../vectors/proof) follows the [common format](../vectors/README.md);
 times are Unix seconds in `now`.
 
-- `keys.json` (4 cases): ML-DSA-65 keys from seeds and P-256 keys from
-  scalars, with the public JWK and thumbprint each must produce.
-- `thumbprints.json` (13 cases): RFC 7638 and AKP thumbprints, and 9 keys that
+- `keys.json` (4 cases): [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) keys from seeds and P-256 keys from
+  scalars, with the public [JWK](https://www.rfc-editor.org/rfc/rfc7517) and thumbprint each must produce.
+- `thumbprints.json` (13 cases): [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638) and AKP thumbprints, and 9 keys that
   have none (`malformed` 4, `unsupported` 5).
 - `proofs.json` (104 cases): proofs to check against `token`,
   `certificate_hash_hex`, `thumbprint` and `now`, with nonces in `spent`
@@ -344,5 +344,5 @@ control plane and the Swift client all read it.
   same thumbprint, but an oddly spelled key can be accepted in one language and
   refused in another. The checker does not use these decoders.
 - The window is symmetric and fixed per checker. There is no server-supplied
-  nonce (RFC 9449 `DPoP-Nonce`), so freshness depends on the device clock
+  nonce ([RFC 9449](https://www.rfc-editor.org/rfc/rfc9449) `DPoP-Nonce`), so freshness depends on the device clock
   being within the window.

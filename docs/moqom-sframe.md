@@ -3,7 +3,7 @@
 
 # moqom-sframe
 
-End-to-end encryption for MoQ objects with SFrame ([RFC 9605]). Each object's
+End-to-end encryption for MoQ objects with SFrame ([[RFC 9605](https://www.rfc-editor.org/rfc/rfc9605)]). Each object's
 payload is sealed with AES-GCM under a key that only the room's members hold.
 The fields a relay needs to route and schedule (the full track name, group,
 object, priority and object properties) stay in the clear and are bound into
@@ -23,7 +23,7 @@ All three pass every case in [`vectors/sframe`](../vectors/sframe).
   the default). The AES-CTR + HMAC suites (`0x0001`–`0x0003`) are not
   implemented. Every platform we target has hardware AES-GCM, and the CTR
   suites would mean composing CTR-then-HMAC ourselves to save a few tag bytes.
-- **Keys.** Each key is derived from a base key and a KID, as RFC 9605 §4.4.2
+- **Keys.** Each key is derived from a base key and a KID, as [RFC 9605](https://www.rfc-editor.org/rfc/rfc9605) §4.4.2
   specifies:
   - `secret = HKDF-Extract("", base_key)`
   - `key = HKDF-Expand(secret, "SFrame 1.0 Secret key " || KID(8) || suite(2), Nk)`
@@ -31,7 +31,7 @@ All three pass every case in [`vectors/sframe`](../vectors/sframe).
   
   Because the KID and suite are part of both labels, a ciphertext made under
   one KID or suite never opens under another. The base key must be `Nk` bytes
-  (16 or 32), the length an MLS exporter gives the suite; anything else is
+  (16 or 32), the length an [MLS](https://www.rfc-editor.org/rfc/rfc9420) exporter gives the suite; anything else is
   `invalid_base_key`. RFC 9605 does not fix the length, and its Appendix C
   derives suite 5 keys from a 16-byte base key, so the vector tests reach the
   derivation through an internal path that does not check it.
@@ -46,7 +46,7 @@ All three pass every case in [`vectors/sframe`](../vectors/sframe).
   process after a restart. See [Counter restarts](#counter-restarts).
 - **Metadata binding.** The AAD is the encoded SFrame header followed by the
   object's canonical metadata (below), which starts with the Serialized Full
-  Track Name. These are the fields `draft-ietf-moq-secure-objects` authenticates
+  Track Name. These are the fields [`draft-ietf-moq-secure-objects`](https://datatracker.ietf.org/doc/draft-ietf-moq-secure-objects/) authenticates
   (Key ID, Full Track Name, immutable properties, Group ID, Object ID and
   Publisher Priority), carried in RFC 9605 framing. The draft's own format
   differs: it has its own header and puts the track name into the key and salt
@@ -75,7 +75,7 @@ All three pass every case in [`vectors/sframe`](../vectors/sframe).
 
 ## Wire format
 
-An SFrame object is `header || ciphertext || tag`, with a 16-byte tag.
+An [SFrame](https://www.rfc-editor.org/rfc/rfc9605) object is `header || ciphertext || tag`, with a 16-byte tag.
 
 The header is RFC 9605 §4.3 unchanged. It starts with a config byte laid out as
 `X KKK Y CCC`:
@@ -90,7 +90,7 @@ forms: the tag covers the header bytes exactly as received, so nobody without
 the key can produce one.
 
 Metadata is encoded canonically, as the MOQT wire encoding of the same fields.
-Integers are QUIC varints (RFC 9000 §16, minimal length, at most 2^62 − 1):
+Integers are QUIC varints ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000) §16, minimal length, at most 2^62 − 1):
 
 ```
 AAD = header || metadata
@@ -131,7 +131,7 @@ configuration `0x79`, temporal layer `0x7A`, silence `0x7C`, catalog disclosure
 uses a `Sender` per outgoing key and one `Receiver` that holds every other
 member's key. MoQ objects go through the metadata forms, which require a track.
 `protectRaw` and `unprotectRaw` (`ProtectRaw`, `protect_raw`) take arbitrary AAD
-after the header, for RFC 9605 interop and non-MoQ use; they bind no track.
+after the header, for [RFC 9605](https://www.rfc-editor.org/rfc/rfc9605) interop and non-MoQ use; they bind no track.
 
 ### Swift (`import MoqomSFrame`)
 
@@ -231,7 +231,7 @@ cannot happen: going back to a KID resumes its counter.
 
 In MOQOM this holds by construction:
 
-- **MLS rooms.** A sender's key is derived from the epoch's base key. Group
+- **[MLS](https://www.rfc-editor.org/rfc/rfc9420) rooms.** A sender's key is derived from the epoch's base key. Group
   state is held only in memory, so a device that restarts, or is removed and
   rejoins, has no keys until a commit adds it and its Welcome arrives, and that
   commit starts a new epoch. Each member has its own KID in each epoch, so
@@ -246,9 +246,9 @@ In MOQOM this holds by construction:
 
 | File | Cases | What |
 | --- | --- | --- |
-| `rfc9605.json` | 297 | RFC 9605 Appendix C as published. C.1: 289 headers. C.2: 3 AES-CTR + HMAC AEAD cases. C.3: 5 SFrame cases. The 6 cases marked `skip` are suites 1–3, which are not implemented. All three languages run the other 291: every header, plus C.3 for suites 4 and 5 down to the label, secret, key, salt, nonce, AAD and ciphertext |
+| `rfc9605.json` | 297 | [RFC 9605](https://www.rfc-editor.org/rfc/rfc9605) Appendix C as published. C.1: 289 headers. C.2: 3 AES-CTR + HMAC AEAD cases. C.3: 5 SFrame cases. The 6 cases marked `skip` are suites 1–3, which are not implemented. All three languages run the other 291: every header, plus C.3 for suites 4 and 5 down to the label, secret, key, salt, nonce, AAD and ciphertext |
 | `metadata.json` | 24 | Canonical encodings, including the track, at each varint size boundary: sorting, repeated types, empty and two-byte-length bytes, large type deltas, an empty namespace field and name, 32 namespace fields and a 4096-byte track name. 9 have no encoding, including a track with no namespace, 33 fields, or 4097 bytes |
-| `kid.json` | 14 | MLS KIDs, epoch tags, and the header each produces at counter 0 |
+| `kid.json` | 14 | [MLS](https://www.rfc-editor.org/rfc/rfc9420) KIDs, epoch tags, and the header each produces at counter 0 |
 | `nonce.json` | 40 | Key, salt, nonce and header for both suites and two KIDs, at counters from 0 to 2^64 − 1 |
 | `seal-open.json` | 10 (32 objects) | Context seal must reproduce each object byte for byte, and open must return each payload. Covers empty payloads, the maximum KID, and a counter crossing into the extended form |
 | `open.json` | 62 | Per suite: every metadata field changed (track name, namespace, a namespace field added, the namespace split differently, group, object, priority, each property, a property added, removed or retyped) gives `authentication_failure`, and so does an object sealed with the same metadata on another track; a missing track gives `invalid_metadata`. Also covers ciphertext, tag and counter changes, a changed KID (`unknown_key`), truncation and malformed headers, objects sealed under the other suite or another base key, invalid metadata, a non-minimal header (which opens), and reordered properties (which open) |

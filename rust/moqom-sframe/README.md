@@ -1,9 +1,9 @@
 # moqom-sframe
 
-SFrame ([RFC 9605]) for MoQ objects. Each object's payload is sealed with
+SFrame ([[RFC 9605](https://www.rfc-editor.org/rfc/rfc9605)]) for MoQ objects. Each object's payload is sealed with
 AES-GCM under a key derived from a base key and a KID. The object's full track
 name, group, object ID, priority and properties, the fields
-`draft-ietf-moq-secure-objects` authenticates, stay in the clear for relays and
+[`draft-ietf-moq-secure-objects`](https://datatracker.ietf.org/doc/draft-ietf-moq-secure-objects/) authenticates, stay in the clear for relays and
 are bound into the authentication tag as AAD after the RFC 9605 header. The
 sender owns the counter, and the receiver keeps a replay window per KID.
 
