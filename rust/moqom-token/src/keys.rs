@@ -2,8 +2,7 @@
 // Copyright 2026 Elliott Wave LLC
 
 use aws_lc_rs::signature::{
-    ED25519, KeyPair, ML_DSA_65, ML_DSA_65_SIGNING, PqdsaKeyPair, UnparsedPublicKey,
-    VerificationAlgorithm,
+    KeyPair, ML_DSA_87, ML_DSA_87_SIGNING, PqdsaKeyPair, UnparsedPublicKey,
 };
 use std::collections::HashSet;
 
@@ -24,10 +23,8 @@ use crate::{Claims, Error};
 /// its key's algorithm and is verified with that one and no other.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Algorithm {
-    /// ML-DSA-65, which every token is signed with.
-    MlDsa65,
-    /// Ed25519, read only to verify tokens signed before ML-DSA.
-    Ed25519,
+    /// ML-DSA-87, which every token is signed and verified with.
+    MlDsa87,
 }
 
 impl Algorithm {
@@ -35,8 +32,7 @@ impl Algorithm {
     #[must_use]
     pub const fn jose(self) -> &'static str {
         match self {
-            Self::MlDsa65 => "ML-DSA-65",
-            Self::Ed25519 => "EdDSA",
+            Self::MlDsa87 => "ML-DSA-87",
         }
     }
 
@@ -44,8 +40,7 @@ impl Algorithm {
     #[must_use]
     pub const fn public_key_bytes(self) -> usize {
         match self {
-            Self::MlDsa65 => 1952,
-            Self::Ed25519 => 32,
+            Self::MlDsa87 => 2592,
         }
     }
 }
@@ -60,8 +55,8 @@ pub fn key_id(public: &[u8]) -> String {
 
 /// A key tokens may be verified with.
 ///
-/// Made only by [`PublicKey::ml_dsa_65`], [`PublicKey::ed25519`] or
-/// [`PublicKey::parse_set`], which refuse a key of the wrong length.
+/// Made only by [`PublicKey::ml_dsa_87`] or [`PublicKey::parse_set`], which
+/// refuse a key of the wrong length.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct PublicKey {
@@ -74,35 +69,21 @@ pub struct PublicKey {
 }
 
 impl PublicKey {
-    /// An ML-DSA-65 key from its 1,952-byte encoding.
+    /// An ML-DSA-87 key from its 2,592-byte encoding.
     ///
     /// # Errors
-    /// [`KeyError::Invalid`] for bytes that are not 1,952 long.
-    pub fn ml_dsa_65(id: impl Into<String>, bytes: Vec<u8>) -> Result<Self, KeyError> {
-        Self::new(id.into(), Algorithm::MlDsa65, bytes)
-    }
-
-    /// A legacy Ed25519 key from its 32 bytes.
-    ///
-    /// # Errors
-    /// [`KeyError::Invalid`] for bytes that are not 32 long.
-    pub fn ed25519(id: impl Into<String>, bytes: Vec<u8>) -> Result<Self, KeyError> {
-        Self::new(id.into(), Algorithm::Ed25519, bytes)
-    }
-
-    fn new(id: String, algorithm: Algorithm, bytes: Vec<u8>) -> Result<Self, KeyError> {
-        if bytes.len() != algorithm.public_key_bytes() {
+    /// [`KeyError::Invalid`] for bytes that are not 2,592 long.
+    pub fn ml_dsa_87(id: impl Into<String>, bytes: Vec<u8>) -> Result<Self, KeyError> {
+        let id = id.into();
+        if bytes.len() != Algorithm::MlDsa87.public_key_bytes() {
             return Err(KeyError::Invalid {
                 kid: id,
-                reason: match algorithm {
-                    Algorithm::MlDsa65 => "an ML-DSA-65 public key is 1,952 bytes",
-                    Algorithm::Ed25519 => "an Ed25519 public key is 32 bytes",
-                },
+                reason: "an ML-DSA-87 public key is 2,592 bytes",
             });
         }
         Ok(Self {
             id,
-            algorithm,
+            algorithm: Algorithm::MlDsa87,
             bytes,
         })
     }
@@ -111,40 +92,33 @@ impl PublicKey {
     /// algorithm.
     #[must_use]
     pub fn verifies(&self, message: &[u8], signature: &[u8]) -> bool {
-        let algorithm: &dyn VerificationAlgorithm = match self.algorithm {
-            Algorithm::MlDsa65 => &ML_DSA_65,
-            Algorithm::Ed25519 => &ED25519,
+        let algorithm = match self.algorithm {
+            Algorithm::MlDsa87 => &ML_DSA_87,
         };
         UnparsedPublicKey::new(algorithm, self.bytes.as_slice())
             .verify(message, signature)
             .is_ok()
     }
 
-    /// The key as a JWK: AKP for ML-DSA-65, per the JOSE ML-DSA draft, or OKP
-    /// for Ed25519.
+    /// The key as a JWK: AKP with `alg` `ML-DSA-87`, per the JOSE ML-DSA draft.
     #[must_use]
     pub fn jwk(&self) -> serde_json::Value {
-        let encoded = URL_SAFE_NO_PAD.encode(&self.bytes);
-        match self.algorithm {
-            Algorithm::MlDsa65 => serde_json::json!({
-                "kty": "AKP", "alg": "ML-DSA-65", "kid": self.id, "pub": encoded,
-            }),
-            Algorithm::Ed25519 => serde_json::json!({
-                "kty": "OKP", "crv": "Ed25519", "kid": self.id, "x": encoded,
-            }),
-        }
+        serde_json::json!({
+            "kty": "AKP", "alg": self.algorithm.jose(), "kid": self.id,
+            "pub": URL_SAFE_NO_PAD.encode(&self.bytes),
+        })
     }
 
     /// Read a JWK set, as a bare array or wrapped in `{"keys": [...]}`.
     ///
     /// The whole document is read first ([`KeyError::Malformed`]), then each
-    /// key in order: it must be AKP/ML-DSA-65 or OKP/Ed25519
-    /// ([`KeyError::Unsupported`]), its public key must be canonical base64url
-    /// of the right length ([`KeyError::Invalid`]), and its `kid` must not repeat
-    /// one before it ([`KeyError::DuplicateKeyId`]). A key that fails is refused
-    /// rather than skipped, because a set that silently lost a key verifies
-    /// fewer tokens than its author thinks. Members a key does not need (`use`,
-    /// `key_ops`) are ignored.
+    /// key in order: it must be AKP/ML-DSA-87 ([`KeyError::Unsupported`]), its
+    /// public key must be canonical base64url of the right length
+    /// ([`KeyError::Invalid`]), and its `kid` must not repeat one before it
+    /// ([`KeyError::DuplicateKeyId`]). A key that fails is refused rather than
+    /// skipped, because a set that silently lost a key verifies fewer tokens
+    /// than its author thinks. Members a key does not need (`use`, `key_ops`,
+    /// `crv`, `x`) are ignored.
     ///
     /// # Errors
     /// The first [`KeyError`] in that order.
@@ -153,12 +127,8 @@ impl PublicKey {
         struct Jwk {
             kty: String,
             #[serde(default)]
-            crv: String,
-            #[serde(default)]
             alg: String,
             kid: String,
-            #[serde(default)]
-            x: String,
             #[serde(default, rename = "pub")]
             public: String,
         }
@@ -191,22 +161,16 @@ impl PublicKey {
         let mut seen = HashSet::new();
         let mut keys = Vec::with_capacity(jwks.len());
         for jwk in jwks {
-            let (algorithm, field, name) = match (jwk.kty.as_str(), jwk.crv.as_str()) {
-                ("AKP", _) if jwk.alg == "ML-DSA-65" => (Algorithm::MlDsa65, &jwk.public, "pub"),
-                ("OKP", "Ed25519") => (Algorithm::Ed25519, &jwk.x, "x"),
-                _ => return Err(KeyError::Unsupported { kid: jwk.kid }),
-            };
-            let Ok(bytes) = URL_SAFE_NO_PAD.decode(field.as_bytes()) else {
+            if jwk.kty != "AKP" || jwk.alg != Algorithm::MlDsa87.jose() {
+                return Err(KeyError::Unsupported { kid: jwk.kid });
+            }
+            let Ok(bytes) = URL_SAFE_NO_PAD.decode(jwk.public.as_bytes()) else {
                 return Err(KeyError::Invalid {
                     kid: jwk.kid,
-                    reason: if name == "pub" {
-                        "pub is not base64url"
-                    } else {
-                        "x is not base64url"
-                    },
+                    reason: "pub is not base64url",
                 });
             };
-            let key = Self::new(jwk.kid, algorithm, bytes)?;
+            let key = Self::ml_dsa_87(jwk.kid, bytes)?;
             if !seen.insert(key.id.clone()) {
                 return Err(KeyError::DuplicateKeyId(key.id));
             }
@@ -227,8 +191,8 @@ pub enum KeyError {
     /// or a key with no `kty` or no `kid`.
     #[error("not a JWK set: {0}")]
     Malformed(String),
-    /// A key that is not AKP/ML-DSA-65 or OKP/Ed25519.
-    #[error("key {kid}: only AKP/ML-DSA-65 and OKP/Ed25519 are supported")]
+    /// A key that is not AKP/ML-DSA-87.
+    #[error("key {kid}: only AKP/ML-DSA-87 is supported")]
     Unsupported {
         /// The key's `kid`.
         kid: String,
@@ -246,8 +210,8 @@ pub enum KeyError {
     /// select is the kind of question a verifier must not answer by accident.
     #[error("key ID {0} appears twice in the set")]
     DuplicateKeyId(String),
-    /// A seed the ML-DSA-65 implementation will not load.
-    #[error("the seed is not an ML-DSA-65 seed")]
+    /// A seed the ML-DSA-87 implementation will not load.
+    #[error("the seed is not an ML-DSA-87 seed")]
     Seed,
     /// The system random number generator failed.
     #[error("the system random number generator failed")]
@@ -269,7 +233,7 @@ impl KeyError {
     }
 }
 
-/// Mints tokens with an ML-DSA-65 key.
+/// Mints tokens with an ML-DSA-87 key.
 pub struct Signer {
     pair: PqdsaKeyPair,
     seed: Zeroizing<[u8; 32]>,
@@ -285,13 +249,13 @@ impl std::fmt::Debug for Signer {
 }
 
 impl Signer {
-    /// Load an ML-DSA-65 key from its 32-byte FIPS 204 seed, named by
+    /// Load an ML-DSA-87 key from its 32-byte FIPS 204 seed, named by
     /// [`key_id`] of its public half.
     ///
     /// # Errors
-    /// [`KeyError::Seed`] for a seed the ML-DSA-65 implementation will not load.
+    /// [`KeyError::Seed`] for a seed the ML-DSA-87 implementation will not load.
     pub fn from_seed(seed: &[u8; 32]) -> Result<Self, KeyError> {
-        let pair = PqdsaKeyPair::from_seed(&ML_DSA_65_SIGNING, seed).map_err(|_| KeyError::Seed)?;
+        let pair = PqdsaKeyPair::from_seed(&ML_DSA_87_SIGNING, seed).map_err(|_| KeyError::Seed)?;
         let id = key_id(pair.public_key().as_ref());
         Ok(Self {
             pair,
@@ -300,7 +264,7 @@ impl Signer {
         })
     }
 
-    /// A new ML-DSA-65 key from a random seed, named by [`key_id`] of its public
+    /// A new ML-DSA-87 key from a random seed, named by [`key_id`] of its public
     /// half. Store [`Signer::seed`] to load the same key again.
     ///
     /// # Errors
@@ -338,7 +302,7 @@ impl Signer {
     pub fn public_key(&self) -> PublicKey {
         PublicKey {
             id: self.id.clone(),
-            algorithm: Algorithm::MlDsa65,
+            algorithm: Algorithm::MlDsa87,
             bytes: self.pair.public_key().as_ref().to_vec(),
         }
     }
@@ -351,7 +315,7 @@ impl Signer {
     /// that is not RFC 7638 SHA-256, and [`Error::Lifetime`] for `iat` and `exp`
     /// unset, out of order, or more than [`crate::MAX_LIFETIME`] apart.
     pub fn sign(&self, claims: &Claims) -> Result<String, Error> {
-        let input = claims.signing_input(Algorithm::MlDsa65.jose(), &self.id)?;
+        let input = claims.signing_input(Algorithm::MlDsa87.jose(), &self.id)?;
         let signature = self.sign_message(input.as_bytes());
         Ok(format!("{input}.{}", URL_SAFE_NO_PAD.encode(signature)))
     }
@@ -363,11 +327,11 @@ impl Signer {
     /// Starting it with a fixed context string that is not base64url is enough.
     #[must_use]
     pub fn sign_message(&self, message: &[u8]) -> Vec<u8> {
-        let mut signature = vec![0u8; ML_DSA_65_SIGNING.signature_len()];
+        let mut signature = vec![0u8; ML_DSA_87_SIGNING.signature_len()];
         let written = self
             .pair
             .sign(message, &mut signature)
-            .expect("ML-DSA-65 signs any message into a buffer of its signature length");
+            .expect("ML-DSA-87 signs any message into a buffer of its signature length");
         signature.truncate(written);
         signature
     }

@@ -16,7 +16,7 @@ import (
 // proof against its own certificate and spends the nonce.
 func Example() {
 	// On the device.
-	device, err := proof.GenerateProver(proof.MLDSA65)
+	device, err := proof.GenerateProver(proof.MLDSA87)
 	if err != nil {
 		panic(err)
 	}
@@ -42,15 +42,15 @@ func Example() {
 	// replayed
 }
 
-// A device key is stored as its 32-byte ML-DSA-65 seed and loaded again.
+// A device key is stored as its 32-byte ML-DSA-87 seed and loaded again.
 func ExampleNewProver() {
-	key, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	key, err := mldsa.GenerateKey(mldsa.MLDSA87())
 	if err != nil {
 		panic(err)
 	}
 	seed := key.Bytes()
 
-	loaded, err := mldsa.NewPrivateKey(mldsa.MLDSA65(), seed)
+	loaded, err := mldsa.NewPrivateKey(mldsa.MLDSA87(), seed)
 	if err != nil {
 		panic(err)
 	}
@@ -60,13 +60,13 @@ func ExampleNewProver() {
 	}
 	original, _ := proof.NewProver(key)
 	fmt.Println(len(seed), device.Algorithm(), device.Thumbprint() == original.Thumbprint())
-	// Output: 32 ML-DSA-65 true
+	// Output: 32 ML-DSA-87 true
 }
 
 // Each refusal names the check that failed.
 func ExampleChecker_Check_refusals() {
-	device, _ := proof.GenerateProver(proof.MLDSA65)
-	stranger, _ := proof.GenerateProver(proof.MLDSA65)
+	device, _ := proof.GenerateProver(proof.MLDSA87)
+	stranger, _ := proof.GenerateProver(proof.MLDSA87)
 	token := []byte("eyJhbGciOiJNTC1EU0EtNjUi...")
 	relay := sha256.Sum256([]byte("relay A's leaf certificate"))
 	other := sha256.Sum256([]byte("relay B's leaf certificate"))
@@ -92,33 +92,14 @@ func ExampleChecker_Check_refusals() {
 	// expired
 }
 
-// An ES256 key from an older SDK is accepted by default and refused by a
-// checker limited to ML-DSA-65.
-func ExampleChecker_algorithms() {
-	older, _ := proof.GenerateProver(proof.ES256)
-	token := []byte("eyJhbGciOiJNTC1EU0EtNjUi...")
-	relay := sha256.Sum256([]byte("the relay's leaf certificate, DER"))
-	now := time.Now()
-	expiry := now.Add(15 * time.Minute)
-	p, _ := older.Prove(token, relay[:], proof.NewNonce(), now)
-
-	both, _ := proof.NewChecker(proof.NewDefaultMemoryNonceStore())
-	strict, _ := proof.NewChecker(proof.NewDefaultMemoryNonceStore(), proof.WithAlgorithms(proof.MLDSA65))
-	fmt.Println(both.Check(p, token, relay[:], older.Thumbprint(), now, expiry))
-	fmt.Println(proof.Class(strict.Check(p, token, relay[:], older.Thumbprint(), now, expiry)))
-	// Output:
-	// <nil>
-	// unsupported
-}
-
 // Checkers that share a store share what has been spent, so a proof accepted
 // on one connection is refused on every other.
 func ExampleMemoryNonceStore() {
 	store := proof.NewDefaultMemoryNonceStore()
 	first, _ := proof.NewChecker(store)
-	second, _ := proof.NewChecker(store, proof.WithAlgorithms(proof.MLDSA65))
+	second, _ := proof.NewChecker(store, proof.WithAlgorithms(proof.MLDSA87))
 
-	device, _ := proof.GenerateProver(proof.MLDSA65)
+	device, _ := proof.GenerateProver(proof.MLDSA87)
 	token := []byte("eyJhbGciOiJNTC1EU0EtNjUi...")
 	relay := sha256.Sum256([]byte("the relay's leaf certificate, DER"))
 	now := time.Now()

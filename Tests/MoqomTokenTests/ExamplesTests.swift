@@ -11,7 +11,7 @@ import Testing
 @Suite struct ExamplesTests {
     @Test func mintAndVerify() throws {
         // Generate a key once and keep its 32-byte seed in your secret store.
-        let seed = try MLDSA65.PrivateKey().seedRepresentation
+        let seed = try MLDSA87.PrivateKey().seedRepresentation
 
         // Load it under the key ID your JWK set publishes.
         let signer = try Signer(seed: seed, keyID: "2026-10")
@@ -38,7 +38,7 @@ import Testing
     }
 
     @Test func expiredAndWrongKey() throws {
-        let signer = Signer(privateKey: try MLDSA65.PrivateKey())
+        let signer = Signer(privateKey: try MLDSA87.PrivateKey())
         let now = Date()
         let iat = Int64(now.timeIntervalSince1970)
         let jws = try signer.sign(Claims(
@@ -53,7 +53,7 @@ import Testing
         }
 
         // A verifier that does not hold the token's key ID.
-        let other = try MLDSA65.PrivateKey()
+        let other = try MLDSA87.PrivateKey()
         #expect(throws: TokenError.unknownKey) {
             try Verifier(keys: [Signer(privateKey: other).publicKey]).verify(jws, now: now)
         }

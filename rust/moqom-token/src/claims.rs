@@ -44,9 +44,10 @@ pub struct Claims {
     /// authorisation: it grants nothing.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub via: String,
-    /// The room's end-to-end encryption policy, for the client.
+    /// The relay pool a private tenant's token is confined to. Empty is the
+    /// shared fleet. A relay admits only tokens naming its own pool.
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub e2ee: String,
+    pub pool: String,
 }
 
 /// What a token is bound to.

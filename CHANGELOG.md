@@ -9,9 +9,10 @@ The first release.
 
 ### moqom-token
 
-- Mints and verifies MOQOM join tokens as compact [JWS](https://www.rfc-editor.org/rfc/rfc7515) signed with ML-DSA-65 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)), with
+- Mints and verifies MOQOM join tokens as compact [JWS](https://www.rfc-editor.org/rfc/rfc7515) signed with ML-DSA-87 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)), with
   tenant, room, grants, expiry, device binding (`cnf.jkt`) and key rotation by key ID.
-- Verifies Ed25519 tokens signed before the move to ML-DSA-65; never signs them.
+- ML-DSA-87 is the only algorithm: Ed25519, ES256 and ML-DSA-65 keys are refused in a key set
+  (`key_unsupported`), and a token naming any of them is `unsupported`.
 - Refuses tokens whose `cnf.jkt` is not an [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638) SHA-256 thumbprint (43 characters of
   canonical base64url).
 - Reads a token's header and claims alike in all three languages: one JSON object of valid
@@ -24,12 +25,16 @@ The first release.
   errors are typed: `set_malformed`, `key_unsupported`, `key_invalid` and `duplicate_kid`.
   A public key made from raw bytes of the wrong length is refused as `key_invalid` in every
   language, as one in a set is.
+- Seals tokens: AES-256-GCM over the signed token, under a key only the issuer and its verifiers
+  hold, so claims are opaque to the holder and everyone else. A verifier with seal keys opens,
+  then verifies as before; `vectors/token/seal.json` pins the format.
 
 ### moqom-proof
 
-- A device's single-use proof of the key its token names, signed with [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) (Secure Enclave
+- A device's single-use proof of the key its token names, signed with [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) (Secure Enclave
   on Apple platforms) and bound to the token and to the certificate of the peer it talks to.
-- Accepts ES256 proofs from older SDKs.
+- ML-DSA-87 is the only algorithm: ES256, EdDSA and ML-DSA-65 proofs and keys are refused as
+  `unsupported` in every language, Rust included.
 - Refuses proofs whose [JWK](https://www.rfc-editor.org/rfc/rfc7517) carries private key members, and proofs naming a certificate when the
   checker has none to compare; `requireCertificate` makes the certificate mandatory.
 - Reads a proof's header, key and claims alike in all three languages: one JSON object of valid
@@ -61,11 +66,14 @@ The first release.
 
 ### moqom-mls
 
-- MLS ([RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)) key agreement for rooms with `MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65`
-  (0xF0AA) for new groups, exporting [SFrame](https://www.rfc-editor.org/rfc/rfc9605) keys and the epoch authenticator, and sealing an
-  epoch's key to broadcast viewers.
-- Opens legacy groups in X-Wing (0xF0A1) and `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`
-  (0x0001) in every language.
+- MLS ([RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)) key agreement for rooms in `MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87`
+  (0xF0AC, private use: HPKE over pure ML-KEM-1024, HKDF-SHA512, AES-256-GCM, ML-DSA-87; NIST category 5 throughout),
+  exporting [SFrame](https://www.rfc-editor.org/rfc/rfc9605) keys and the epoch authenticator, and sealing an epoch's key to broadcast
+  viewers. A key package is about 10.4 KB; each member adds about 1.7 KB to a commit and 4.2 KB
+  to a Welcome.
+- It is the only suite. Key packages, Welcomes and groups in `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`
+  (0x0001), X-Wing (0xF0A1), ML-KEM-768 (0xF0AA) or ML-KEM-1024 with ML-DSA-65 (0xF0AB) are refused as unsupported in every
+  language.
 - Rust wipes [HPKE](https://www.rfc-editor.org/rfc/rfc9180) secrets, epoch secrets and private keys when they are dropped, and its
   `Debug` output for groups, pending commits, processed commits and epoch secrets leaves out
   every secret and private key.

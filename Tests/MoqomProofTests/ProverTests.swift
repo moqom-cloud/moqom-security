@@ -14,7 +14,7 @@ struct ProverTests {
     static let until = now.addingTimeInterval(600)
 
     static func provers() throws -> [Prover] {
-        [Prover(.mlDSA65(try MLDSA65.PrivateKey())), Prover(.es256(P256.Signing.PrivateKey()))]
+        [Prover(.mlDSA87(try MLDSA87.PrivateKey()))]
     }
 
     @Test("a proof round-trips in each algorithm, once")
@@ -38,9 +38,9 @@ struct ProverTests {
         }
     }
 
-    @Test("an ML-DSA-65 proof fits the limit with room to spare")
+    @Test("an ML-DSA-87 proof fits the limit with room to spare")
     func size() throws {
-        let prover = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        let prover = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
         let proof = try prover.prove(
             token: Data(repeating: 0x74, count: 5000), certificateHash: Self.certificate,
             nonce: Prover.nonce(), issuedAt: Self.now
@@ -48,28 +48,23 @@ struct ProverTests {
         #expect(proof.count < Checker.maximumProofBytes * 3 / 4)
     }
 
-    @Test("a checker can be limited to ML-DSA-65")
+    @Test("ML-DSA-87 is the only algorithm, and P-256 and ML-DSA-65 keys have no thumbprint")
     func onlyMLDSA() throws {
-        let prover = Prover(.es256(P256.Signing.PrivateKey()))
-        let proof = try prover.prove(
-            token: Data("t".utf8), certificateHash: Self.certificate, nonce: "n", issuedAt: Self.now
-        )
-        let checker = try Checker(store: MemoryNonceStore(), algorithms: [.mlDSA65])
-        #expect(throws: ProofError.unsupported) {
-            try checker.check(
-                proof, token: Data("t".utf8), certificateHash: Self.certificate,
-                thumbprint: prover.thumbprint, now: Self.now, until: Self.until
-            )
-        }
+        #expect(ProofAlgorithm.allCases == [.mlDSA87])
+        #expect(ProofAlgorithm(rawValue: "ES256") == nil)
+        #expect(ProofAlgorithm(rawValue: "ML-DSA-65") == nil)
+        let raw = P256.Signing.PrivateKey().publicKey.rawRepresentation
+        let ec = ProofJWK(kty: "EC", alg: nil, pub: raw.base64URL)
+        #expect(throws: ProofError.unsupported) { try ec.thumbprint() }
+        let previous = ProofJWK(kty: "AKP", alg: "ML-DSA-65", pub: try MLDSA65.PrivateKey().publicKey.rawRepresentation.base64URL)
+        #expect(throws: ProofError.unsupported) { try previous.thumbprint() }
     }
 
     @Test("the JWK members are the ones its kind has")
     func members() throws {
-        let prover = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        let prover = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
         #expect(Set(prover.jwk.members.keys) == ["kty", "alg", "pub"])
         #expect(try prover.jwk.thumbprint() == prover.thumbprint)
-        let legacy = Prover(.es256(P256.Signing.PrivateKey()))
-        #expect(Set(legacy.jwk.members.keys) == ["kty", "crv", "x", "y"])
     }
 
     @Test("the store sweeps expired nonces and fails closed")
@@ -86,7 +81,7 @@ struct ProverTests {
     @Test("nonces are fresh, and a proof needs one")
     func nonces() throws {
         #expect(Prover.nonce() != Prover.nonce())
-        let prover = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        let prover = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
         #expect(throws: ProofError.self) {
             try prover.prove(token: Data(), certificateHash: Self.certificate, nonce: "")
         }
@@ -121,7 +116,7 @@ struct ProverTests {
     /// window must not get the proof accepted twice once the store sweeps.
     @Test("a short until cannot reopen replay")
     func shortUntil() throws {
-        let prover = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        let prover = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
         let store = try MemoryNonceStore(capacity: 2)
         let checker = Checker(store: store)
         let token = Data("a.token".utf8)
@@ -142,9 +137,9 @@ struct ProverTests {
     }
 
     /// Skipped where there is no enclave: a simulator, or a Mac without one.
-    @Test("a Secure Enclave ML-DSA-65 key proves like a software one", .enabled(if: SecureEnclave.isAvailable))
+    @Test("a Secure Enclave ML-DSA-87 key proves like a software one", .enabled(if: SecureEnclave.isAvailable))
     func secureEnclave() throws {
-        let prover = Prover(.secureEnclaveMLDSA65(try SecureEnclave.MLDSA65.PrivateKey()))
+        let prover = Prover(.secureEnclaveMLDSA87(try SecureEnclave.MLDSA87.PrivateKey()))
         let proof = try prover.prove(
             token: Data("t".utf8), certificateHash: Self.certificate, nonce: "n", issuedAt: Self.now
         )

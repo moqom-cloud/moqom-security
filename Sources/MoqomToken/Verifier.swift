@@ -16,13 +16,33 @@ public struct Verifier: Sendable {
     public let issuer: String
     /// The only tenant accepted; empty accepts any.
     public let tenant: String
+    /// The only `pool` accepted, empty being the shared fleet, which refuses
+    /// every token naming a pool. `nil` does not check the pool.
+    public let pool: String?
+    /// The keys sealed tokens are opened with. When there are any, a token
+    /// that is not sealed is refused (``TokenError/unsupported``) unless
+    /// ``acceptsUnsealed``.
+    public let sealKeys: [SealKey]
+    /// Also accept tokens that are signed and not sealed, for the overlap while
+    /// an issuer moves to sealing: at most fifteen minutes once it has.
+    public let acceptsUnsealed: Bool
 
-    public init(issuer: String = "", tenant: String = "", keys: [PublicKey]) {
+    public init(
+        issuer: String = "",
+        tenant: String = "",
+        pool: String? = nil,
+        keys: [PublicKey],
+        sealKeys: [SealKey] = [],
+        acceptsUnsealed: Bool = false
+    ) {
         var byID: [[UInt8]: PublicKey] = [:]
         for key in keys { byID[Array(key.id.utf8)] = key }
         self.keys = byID
         self.issuer = issuer
         self.tenant = tenant
+        self.pool = pool
+        self.sealKeys = sealKeys
+        self.acceptsUnsealed = acceptsUnsealed
     }
 
     /// Whether the verifier holds no key, and so verifies nothing.
@@ -37,7 +57,20 @@ public struct Verifier: Sendable {
     /// from an unverified token, even to word an error, is how a parser becomes
     /// an attack surface. Then the claims, in this order: issuer, expiry,
     /// not-before, lifetime, completeness, thumbprint, tenant.
+    ///
+    /// A verifier with seal keys opens a sealed token first, and verifies what
+    /// is inside exactly as it would the signed token.
     public func verify(_ token: Data, now: Date) throws(TokenError) -> Claims {
+        if !sealKeys.isEmpty {
+            if SealKey.isSealed(token) {
+                return try verifySigned(Data(try SealKey.open(token, keys: sealKeys).utf8), now: now)
+            }
+            if !acceptsUnsealed { throw .unsupported }
+        }
+        return try verifySigned(token, now: now)
+    }
+
+    private func verifySigned(_ token: Data, now: Date) throws(TokenError) -> Claims {
         guard !token.isEmpty, token.count <= TokenLimits.maximumTokenBytes else {
             throw .malformed("token length is out of range")
         }
@@ -87,6 +120,7 @@ public struct Verifier: Sendable {
         if claims.subject.isEmpty || claims.tenant.isEmpty || claims.thumbprint.isEmpty { throw .incomplete }
         if !Claims.isValidThumbprint(claims.thumbprint) { throw .thumbprint }
         if !tenant.isEmpty, !claims.tenant.utf8.elementsEqual(tenant.utf8) { throw .wrongTenant }
+        if let pool, !claims.pool.utf8.elementsEqual(pool.utf8) { throw .wrongPool }
     }
 
     private static func decode(_ segment: Data.SubSequence) -> Data? {

@@ -19,8 +19,7 @@ struct VectorTests {
     struct KeyCase: Decodable {
         var name: String
         var alg: String
-        var seed_hex: String?
-        var private_hex: String?
+        var seed_hex: String
         var jwk: ProofJWK
         var thumbprint: String
     }
@@ -58,20 +57,10 @@ struct VectorTests {
     func keys() throws {
         let file: File<KeyCase> = try Self.read("keys.json")
         for vector in file.cases {
-            let prover: Prover
-            switch ProofAlgorithm(rawValue: vector.alg) {
-            case .mlDSA65:
-                prover = Prover(.mlDSA65(try MLDSA65.PrivateKey(
-                    seedRepresentation: Data(hex: try #require(vector.seed_hex)), publicKey: nil
-                )))
-            case .es256:
-                prover = Prover(.es256(try P256.Signing.PrivateKey(
-                    rawRepresentation: Data(hex: try #require(vector.private_hex))
-                )))
-            case nil:
-                Issue.record("\(vector.name): unknown alg")
-                continue
-            }
+            #expect(ProofAlgorithm(rawValue: vector.alg) == .mlDSA87, "\(vector.name)")
+            let prover = Prover(.mlDSA87(try MLDSA87.PrivateKey(
+                seedRepresentation: Data(hex: vector.seed_hex), publicKey: nil
+            )))
             #expect(prover.jwk == vector.jwk, "\(vector.name)")
             #expect(prover.thumbprint == vector.thumbprint, "\(vector.name)")
         }

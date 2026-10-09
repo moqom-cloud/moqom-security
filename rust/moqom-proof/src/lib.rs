@@ -10,8 +10,8 @@
 //! hash (`ath`), to the peer's leaf certificate by hash (`rel`), to a time
 //! (`iat`) and to a nonce (`jti`) the checker accepts once.
 //!
-//! Two algorithms: ML-DSA-65 (JOSE `ML-DSA-65`, JWK `kty` `AKP`), the default,
-//! and `ES256` on P-256, accepted while devices holding older keys roll over.
+//! One algorithm: ML-DSA-87 (JOSE `ML-DSA-87`, JWK `kty` `AKP`), so every proof
+//! is post-quantum. `ES256`, ML-DSA-65 and every other algorithm are refused.
 //!
 //! [`Prover`] makes proofs; [`Checker`] checks them against a caller-supplied
 //! [`NonceStore`]. See `docs/moqom-proof.md` for the wire format.
@@ -29,9 +29,9 @@
 //!
 //! # fn main() -> Result<(), Error> {
 //! // On the device.
-//! let device = Prover::generate(Algorithm::MlDsa65)?;
+//! let device = Prover::generate(Algorithm::MlDsa87)?;
 //! let jkt = device.thumbprint().to_owned(); // the control plane puts this in cnf.jkt
-//! let token = b"eyJhbGciOiJNTC1EU0EtNjUi...";
+//! let token = b"eyJhbGciOiJNTC1EU0EtODci...";
 //! let relay_certificate = digest(&SHA256, b"the relay's leaf certificate, DER");
 //! let now = SystemTime::now();
 //! let proof = device.prove(token, relay_certificate.as_ref(), &nonce()?, now)?;
@@ -48,21 +48,21 @@
 //!
 //! # Storing a device key
 //!
-//! [`Prover::to_pkcs8`] stores an ML-DSA-65 key as its seed, and
+//! [`Prover::to_pkcs8`] stores an ML-DSA-87 key as its seed, and
 //! [`Prover::from_pkcs8`] loads it again with the same thumbprint.
 //!
 //! ```
 //! use moqom_proof::{Algorithm, Error, Prover};
 //!
 //! # fn main() -> Result<(), Error> {
-//! let device = Prover::generate(Algorithm::MlDsa65)?;
+//! let device = Prover::generate(Algorithm::MlDsa87)?;
 //! let stored = device.to_pkcs8()?;
 //! let loaded = Prover::from_pkcs8(&stored)?;
-//! assert_eq!(loaded.algorithm(), Algorithm::MlDsa65);
+//! assert_eq!(loaded.algorithm(), Algorithm::MlDsa87);
 //! assert_eq!(loaded.thumbprint(), device.thumbprint());
 //!
-//! let from_seed = Prover::ml_dsa_65_from_seed(&[7; 32])?;
-//! assert_eq!(from_seed.thumbprint(), "e6Z96eT_vmFBoPYfx8wJ1B6r6stkERsYhS4iadvZec4");
+//! let from_seed = Prover::ml_dsa_87_from_seed(&[7; 32])?;
+//! assert_eq!(from_seed.thumbprint(), "IrFIQ-I8fWTTWly21OaN1i-cm1_ad3Rfkbr_cc5ZNOc");
 //! # Ok(())
 //! # }
 //! ```
@@ -78,9 +78,9 @@
 //! use moqom_proof::{Algorithm, Checker, Error, MemoryNonceStore, Prover, nonce};
 //!
 //! # fn main() -> Result<(), Error> {
-//! let device = Prover::generate(Algorithm::MlDsa65)?;
-//! let stranger = Prover::generate(Algorithm::MlDsa65)?;
-//! let token = b"eyJhbGciOiJNTC1EU0EtNjUi...";
+//! let device = Prover::generate(Algorithm::MlDsa87)?;
+//! let stranger = Prover::generate(Algorithm::MlDsa87)?;
+//! let token = b"eyJhbGciOiJNTC1EU0EtODci...";
 //! let relay = digest(&SHA256, b"relay A's leaf certificate");
 //! let other = digest(&SHA256, b"relay B's leaf certificate");
 //! let now = SystemTime::now();
@@ -104,37 +104,6 @@
 //! # }
 //! ```
 //!
-//! # ES256 during rollover
-//!
-//! An ES256 key from an older SDK is accepted by default and refused by a
-//! checker limited to ML-DSA-65.
-//!
-//! ```
-//! use std::time::{Duration, SystemTime};
-//!
-//! use aws_lc_rs::digest::{SHA256, digest};
-//! use moqom_proof::{Algorithm, Checker, Error, MemoryNonceStore, Prover, nonce};
-//!
-//! # fn main() -> Result<(), Error> {
-//! let older = Prover::generate(Algorithm::Es256)?;
-//! let token = b"eyJhbGciOiJNTC1EU0EtNjUi...";
-//! let relay = digest(&SHA256, b"the relay's leaf certificate, DER");
-//! let now = SystemTime::now();
-//! let expiry = now + Duration::from_secs(15 * 60);
-//! let proof = older.prove(token, relay.as_ref(), &nonce()?, now)?;
-//!
-//! let both = Checker::new(MemoryNonceStore::default());
-//! let strict = Checker::new(MemoryNonceStore::default()).with_algorithms(&[Algorithm::MlDsa65])?;
-//! let thumbprint = older.thumbprint();
-//! assert_eq!(both.check(&proof, token, Some(relay.as_ref()), thumbprint, now, expiry), Ok(()));
-//! assert_eq!(
-//!     strict.check(&proof, token, Some(relay.as_ref()), thumbprint, now, expiry),
-//!     Err(Error::Unsupported)
-//! );
-//! # Ok(())
-//! # }
-//! ```
-//!
 //! # Sharing a nonce store
 //!
 //! Checkers that share a store share what has been spent, so a proof accepted
@@ -153,8 +122,8 @@
 //! let first = Checker::new(Arc::clone(&store));
 //! let second = Checker::new(Arc::clone(&store));
 //!
-//! let device = Prover::generate(Algorithm::MlDsa65)?;
-//! let token = b"eyJhbGciOiJNTC1EU0EtNjUi...";
+//! let device = Prover::generate(Algorithm::MlDsa87)?;
+//! let token = b"eyJhbGciOiJNTC1EU0EtODci...";
 //! let relay = digest(&SHA256, b"the relay's leaf certificate, DER");
 //! let now = SystemTime::now();
 //! let expiry = now + Duration::from_secs(15 * 60);

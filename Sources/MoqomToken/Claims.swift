@@ -71,8 +71,9 @@ public struct Claims: Hashable, Sendable {
     /// `via`: the username whose following brought the holder in. Provenance,
     /// not authorisation: it grants nothing.
     public var via: String
-    /// `e2ee`: the room's end-to-end encryption policy, for the client.
-    public var e2ee: String
+    /// `pool`: the relay pool a private tenant's token is confined to. Empty
+    /// is the shared fleet.
+    public var pool: String
 
     public init(
         issuer: String = "",
@@ -84,7 +85,7 @@ public struct Claims: Hashable, Sendable {
         thumbprint: String,
         grant: Grant = Grant(),
         via: String = "",
-        e2ee: String = ""
+        pool: String = ""
     ) {
         self.issuer = issuer
         self.subject = subject
@@ -95,7 +96,7 @@ public struct Claims: Hashable, Sendable {
         self.thumbprint = thumbprint
         self.grant = grant
         self.via = via
-        self.e2ee = e2ee
+        self.pool = pool
     }
 
     /// `iat` as a date.
@@ -122,7 +123,8 @@ public struct Claims: Hashable, Sendable {
                     owner: moqt?.bool("own") ?? false, backstage: moqt?.bool("bs") ?? false,
                     ageVerified: moqt?.bool("age") ?? false, relay: moqt?.bool("rly") ?? false
                 ),
-                via: claims.string("via") ?? "", e2ee: claims.string("e2ee") ?? ""
+                via: claims.string("via") ?? "",
+                pool: claims.string("pool") ?? ""
             )
         } catch {
             throw .malformed("claims are not JSON")
@@ -138,7 +140,7 @@ public struct Claims: Hashable, Sendable {
             ("cnf", JSON.object([("jkt", JSON.string(thumbprint))])), ("moqt", grant.json),
         ]
         if !via.isEmpty { members.append(("via", JSON.string(via))) }
-        if !e2ee.isEmpty { members.append(("e2ee", JSON.string(e2ee))) }
+        if !pool.isEmpty { members.append(("pool", JSON.string(pool))) }
         return Data(JSON.object(members).utf8)
     }
 

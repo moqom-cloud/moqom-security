@@ -4,11 +4,10 @@
 // moqom-token: mint and verify the credential a MOQOM client joins a relay with.
 //
 // A token is a compact JWS (RFC 7515) over JSON claims, typed `MOQT`, signed
-// with ML-DSA-65 (FIPS 204, JOSE `ML-DSA-65`, JWK `kty` `AKP`). Ed25519
-// (`EdDSA`) keys verify and never sign, so tokens issued before the move to
-// ML-DSA stay good until they expire. The key a token names by `kid` decides the
-// algorithm it is verified with; the header's `alg` must agree and is never
-// trusted on its own.
+// with ML-DSA-87 (FIPS 204, JOSE `ML-DSA-87`, JWK `kty` `AKP`), the only
+// algorithm a token is signed or verified with. The key a token names by `kid`
+// decides the algorithm it is verified with; the header's `alg` must agree and
+// is never trusted on its own.
 //
 // `Signer.sign(_:)` and `Verifier.verify(_:now:)` are the whole API, the same as
 // the Go and Rust libraries, and all three pass the vectors in `vectors/token`.
@@ -53,6 +52,8 @@ public enum TokenError: Error, Hashable, Sendable, CustomStringConvertible {
     case wrongIssuer
     /// For a tenant the verifier is not pinned to.
     case wrongTenant
+    /// For a relay pool the verifier is not pinned to.
+    case wrongPool
     /// Does not name a subject, a tenant and a device.
     case incomplete
     /// `cnf.jkt` is not an RFC 7638 SHA-256 thumbprint.
@@ -69,6 +70,7 @@ public enum TokenError: Error, Hashable, Sendable, CustomStringConvertible {
         case .lifetime: "lifetime"
         case .wrongIssuer: "wrong_issuer"
         case .wrongTenant: "wrong_tenant"
+        case .wrongPool: "wrong_pool"
         case .incomplete: "incomplete"
         case .thumbprint: "thumbprint"
         }
@@ -85,6 +87,7 @@ public enum TokenError: Error, Hashable, Sendable, CustomStringConvertible {
         case .lifetime: "token lifetime is out of range"
         case .wrongIssuer: "token was issued by another deployment"
         case .wrongTenant: "token is for another tenant"
+        case .wrongPool: "token is for another relay pool"
         case .incomplete: "token does not name a complete identity"
         case .thumbprint: "token is not bound to an RFC 7638 SHA-256 thumbprint"
         }

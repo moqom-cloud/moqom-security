@@ -49,10 +49,10 @@ func TestARoundTripInEachAlgorithm(t *testing.T) {
 	}
 }
 
-// An ML-DSA-65 proof carries a 1,952-byte key and a 3,309-byte signature,
+// An ML-DSA-87 proof carries a 2,592-byte key and a 4,627-byte signature,
 // both base64url, and must stay inside the limit with room to spare.
 func TestAnMLDSAProofFitsTheLimit(t *testing.T) {
-	prover, err := GenerateProver(MLDSA65)
+	prover, err := GenerateProver(MLDSA87)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,12 +61,12 @@ func TestAnMLDSAProofFitsTheLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(proof) > MaxProofBytes*3/4 {
-		t.Errorf("an ML-DSA-65 proof is %d bytes, too close to the %d limit", len(proof), MaxProofBytes)
+		t.Errorf("an ML-DSA-87 proof is %d bytes, too close to the %d limit", len(proof), MaxProofBytes)
 	}
 }
 
 func TestAJWKSurvivesJSON(t *testing.T) {
-	prover, err := GenerateProver(MLDSA65)
+	prover, err := GenerateProver(MLDSA87)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,26 +86,28 @@ func TestAJWKSurvivesJSON(t *testing.T) {
 	}
 }
 
-func TestACheckerCanBeLimitedToOneAlgorithm(t *testing.T) {
-	prover, err := GenerateProver(ES256)
+// Only ML-DSA-87: a P-256 key makes no prover, and ES256 is no algorithm.
+func TestClassicalKeysAreRefused(t *testing.T) {
+	es, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	proof, err := prover.Prove([]byte("t"), certificate[:], NewNonce(), testNow)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := NewProver(es); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("NewProver(P-256) = %v, want ErrUnsupported", err)
 	}
-	checker, err := NewChecker(NewDefaultMemoryNonceStore(), WithAlgorithms(MLDSA65))
-	if err != nil {
-		t.Fatal(err)
+	if _, err := GenerateProver("ES256"); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("GenerateProver(ES256) = %v, want ErrUnsupported", err)
 	}
-	if err := checker.Check(proof, []byte("t"), certificate[:], prover.Thumbprint(), testNow, testUntil); !errors.Is(err, ErrUnsupported) {
-		t.Errorf("Check() = %v, want ErrUnsupported", err)
+	if _, err := NewChecker(NewDefaultMemoryNonceStore(), WithAlgorithms("ES256")); !errors.Is(err, ErrConfiguration) {
+		t.Errorf("WithAlgorithms(ES256) = %v, want ErrConfiguration", err)
+	}
+	if !slices.Equal(Algorithms, []Algorithm{MLDSA87}) {
+		t.Errorf("Algorithms = %v", Algorithms)
 	}
 }
 
 func TestAProofNeedsANonce(t *testing.T) {
-	prover, err := GenerateProver(MLDSA65)
+	prover, err := GenerateProver(MLDSA87)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,23 +132,17 @@ func (refusingSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error)
 }
 
 func TestASignerThatRefusesIsClassedSigning(t *testing.T) {
-	ml, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	ml, err := mldsa.GenerateKey(mldsa.MLDSA87())
 	if err != nil {
 		t.Fatal(err)
 	}
-	es, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	prover, err := NewProver(refusingSigner{ml.Public()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, public := range []crypto.PublicKey{ml.Public(), es.Public()} {
-		prover, err := NewProver(refusingSigner{public})
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = prover.Prove([]byte("t"), certificate[:], NewNonce(), testNow)
-		if !errors.Is(err, ErrSigning) || !errors.Is(err, errRefused) || Class(err) != "signing" {
-			t.Errorf("%s: Prove() = %v (%q), want ErrSigning wrapping the signer's error", prover.Algorithm(), err, Class(err))
-		}
+	_, err = prover.Prove([]byte("t"), certificate[:], NewNonce(), testNow)
+	if !errors.Is(err, ErrSigning) || !errors.Is(err, errRefused) || Class(err) != "signing" {
+		t.Errorf("Prove() = %v (%q), want ErrSigning wrapping the signer's error", err, Class(err))
 	}
 }
 
@@ -212,7 +208,7 @@ func TestSettingsThatCannotWorkAreRefusedAtConstruction(t *testing.T) {
 // A caller that passes an until earlier than the end of the proof's window
 // must not get the proof accepted twice once the store sweeps.
 func TestAShortUntilCannotReopenReplay(t *testing.T) {
-	prover, err := GenerateProver(MLDSA65)
+	prover, err := GenerateProver(MLDSA87)
 	if err != nil {
 		t.Fatal(err)
 	}

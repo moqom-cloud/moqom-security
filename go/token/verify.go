@@ -26,6 +26,13 @@ type Verifier struct {
 	// deployment that happens to share a key identifier is refused.
 	issuer string
 	tenant string
+	// pool, when poolSet, is the only `pool` accepted, empty included.
+	pool    string
+	poolSet bool
+	// seal, if not empty, are the keys tokens are sealed with, and a token
+	// that is not sealed is refused unless unsealed is set.
+	seal     []SealKey
+	unsealed bool
 }
 
 // NewVerifier accepts tokens signed by keys and issued by issuer; an empty
@@ -41,7 +48,35 @@ func NewVerifier(issuer string, keys ...PublicKey) *Verifier {
 // ForTenant is the same verifier refusing every token not issued for tenant
 // (ErrWrongTenant). Empty accepts any.
 func (v *Verifier) ForTenant(tenant string) *Verifier {
-	return &Verifier{keys: v.keys, issuer: v.issuer, tenant: tenant}
+	copied := *v
+	copied.tenant = tenant
+	return &copied
+}
+
+// ForPool is the same verifier refusing every token whose `pool` is not pool
+// (ErrWrongPool). Empty pool is the shared fleet, which refuses every token
+// that names a pool. A verifier never given a pool does not check it.
+func (v *Verifier) ForPool(pool string) *Verifier {
+	copied := *v
+	copied.pool, copied.poolSet = pool, true
+	return &copied
+}
+
+// WithSealKeys is the same verifier opening sealed tokens with keys, and
+// refusing every token that is not sealed (ErrUnsupported).
+func (v *Verifier) WithSealKeys(keys ...SealKey) *Verifier {
+	copied := *v
+	copied.seal = append([]SealKey(nil), keys...)
+	return &copied
+}
+
+// AcceptingUnsealed is the same verifier also accepting tokens that are signed
+// and not sealed, for the overlap while an issuer moves to sealing: at most
+// MaxLifetime once it has.
+func (v *Verifier) AcceptingUnsealed() *Verifier {
+	copied := *v
+	copied.unsealed = true
+	return &copied
 }
 
 // IsEmpty reports whether the verifier holds no key, and so verifies nothing.
@@ -59,7 +94,22 @@ func (v *Verifier) Key(id string) (PublicKey, bool) {
 // unverified token, even to word an error, is how a parser becomes an attack
 // surface. Then the claims, in this order: issuer, expiry, not-before,
 // lifetime, completeness, thumbprint, tenant.
+//
+// A verifier with seal keys opens a sealed token first, and verifies what is
+// inside exactly as it would the signed token.
 func (v *Verifier) Verify(token string, now time.Time) (Claims, error) {
+	if len(v.seal) > 0 {
+		switch {
+		case IsSealed(token):
+			opened, err := Open(token, v.seal...)
+			if err != nil {
+				return Claims{}, err
+			}
+			token = opened
+		case !v.unsealed:
+			return Claims{}, fmt.Errorf("%w: the token is not sealed", ErrUnsupported)
+		}
+	}
 	if len(token) == 0 || len(token) > MaxTokenBytes {
 		return Claims{}, fmt.Errorf("%w: token length is out of range", ErrMalformed)
 	}
@@ -143,6 +193,9 @@ func (v *Verifier) check(claims Claims, now time.Time) error {
 	if v.tenant != "" && claims.Tenant != v.tenant {
 		return fmt.Errorf("%w: %q", ErrWrongTenant, claims.Tenant)
 	}
+	if v.poolSet && claims.Pool != v.pool {
+		return fmt.Errorf("%w: %q", ErrWrongPool, claims.Pool)
+	}
 	return nil
 }
 
@@ -170,7 +223,8 @@ func decodeClaims(data []byte) (Claims, error) {
 	}
 	if err := fieldsInto(fields, map[string]any{
 		"iss": &claims.Issuer, "sub": &claims.Subject, "aud": &claims.Tenant, "jti": &claims.ID,
-		"iat": &claims.IssuedAt, "exp": &claims.Expires, "via": &claims.Via, "e2ee": &claims.E2EE,
+		"iat": &claims.IssuedAt, "exp": &claims.Expires, "via": &claims.Via,
+		"pool": &claims.Pool,
 	}, false); err != nil {
 		return Claims{}, err
 	}

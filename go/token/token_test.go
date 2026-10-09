@@ -5,7 +5,6 @@ package token
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -48,9 +47,9 @@ func TestASeedAlwaysNamesTheSameKey(t *testing.T) {
 
 func TestAJWKSetRoundTripsInEitherShape(t *testing.T) {
 	signer, _ := NewSigner(seed(1))
-	legacy, _ := NewPublicKey(EdDSA, "old", ed25519.NewKeyFromSeed(seed(4)).Public().(ed25519.PublicKey))
+	next, _ := NewSigner(seed(2))
 	var jwks []json.RawMessage
-	for _, key := range []PublicKey{signer.PublicKey(), legacy} {
+	for _, key := range []PublicKey{signer.PublicKey(), next.WithID("next").PublicKey()} {
 		encoded, err := key.JWK()
 		if err != nil {
 			t.Fatal(err)
@@ -61,13 +60,14 @@ func TestAJWKSetRoundTripsInEitherShape(t *testing.T) {
 	wrapped, _ := json.Marshal(map[string]any{"keys": jwks})
 	for _, document := range [][]byte{bare, wrapped} {
 		keys, err := ParseJWKSet(document)
-		if err != nil || len(keys) != 2 || keys[0].ID() != signer.ID() || keys[1].Algorithm() != EdDSA {
+		if err != nil || len(keys) != 2 || keys[0].ID() != signer.ID() || keys[1].ID() != "next" {
 			t.Fatalf("%s: %v %v", document, keys, err)
 		}
 	}
 	for _, document := range []string{
 		`[{"kty":"AKP","alg":"ML-DSA-44","kid":"k","pub":"AAAA"}]`,
 		`[{"kty":"AKP","alg":"ML-DSA-65","kid":"k","pub":"AAAA"}]`,
+		`[{"kty":"OKP","crv":"Ed25519","kid":"k","x":"AAAA"}]`,
 		`[{"kty":"OKP","crv":"P-256","kid":"k","x":"AAAA"}]`,
 		`["not an object"]`,
 	} {
@@ -90,30 +90,27 @@ func TestErrorsCarryTheirClass(t *testing.T) {
 	if _, err := NewSigner(seed(1)[:31]); !errors.Is(err, ErrKeyInvalid) || Class(err) != "key_invalid" {
 		t.Errorf("a short seed gave %v", err)
 	}
-	if _, err := NewPublicKey("ES256", "k", nil); Class(err) != "key_unsupported" {
-		t.Errorf("an ES256 key gave %v", err)
+	for _, algorithm := range []Algorithm{"ES256", "EdDSA", "ML-DSA-65"} {
+		if _, err := NewPublicKey(algorithm, "k", nil); Class(err) != "key_unsupported" {
+			t.Errorf("an %s key gave %v", algorithm, err)
+		}
 	}
 }
 
 func TestARawKeyOfTheWrongLengthIsRefused(t *testing.T) {
 	signer, _ := NewSigner(seed(1))
 	mldsa := signer.PublicKey().Bytes()
-	ed := bytes.Repeat([]byte{7}, ed25519.PublicKeySize)
-	if _, err := NewPublicKey(MLDSA65, "k", mldsa); err != nil {
-		t.Errorf("an ML-DSA-65 key gave %v", err)
+	if len(mldsa) != 2592 {
+		t.Errorf("an ML-DSA-87 key is %d bytes", len(mldsa))
 	}
-	if _, err := NewPublicKey(EdDSA, "k", ed); err != nil {
-		t.Errorf("an Ed25519 key gave %v", err)
+	if _, err := NewPublicKey(MLDSA87, "k", mldsa); err != nil {
+		t.Errorf("an ML-DSA-87 key gave %v", err)
 	}
-	for _, c := range []struct {
-		algorithm Algorithm
-		raw       []byte
-	}{
-		{MLDSA65, mldsa[:len(mldsa)-1]}, {MLDSA65, append(slices.Clone(mldsa), 0)}, {MLDSA65, ed}, {MLDSA65, nil},
-		{EdDSA, ed[:31]}, {EdDSA, append(slices.Clone(ed), 0)}, {EdDSA, mldsa}, {EdDSA, nil},
+	for _, raw := range [][]byte{
+		mldsa[:len(mldsa)-1], append(slices.Clone(mldsa), 0), mldsa[:1952], bytes.Repeat([]byte{7}, 32), nil,
 	} {
-		if _, err := NewPublicKey(c.algorithm, "k", c.raw); !errors.Is(err, ErrKeyInvalid) || Class(err) != "key_invalid" {
-			t.Errorf("%s key of %d bytes gave %v", c.algorithm, len(c.raw), err)
+		if _, err := NewPublicKey(MLDSA87, "k", raw); !errors.Is(err, ErrKeyInvalid) || Class(err) != "key_invalid" {
+			t.Errorf("an ML-DSA-87 key of %d bytes gave %v", len(raw), err)
 		}
 	}
 }

@@ -39,9 +39,10 @@ All three pass every case in [`vectors/proof`](../vectors/proof).
   new nonce is a new session, not a replay.
 - **Fresh.** `iat` must be within a window (default five minutes) of the
   checker's clock, either way.
-- **Two algorithms.** ML-DSA-65 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)) is the default and the only
-  algorithm new devices generate. ES256 (P-256) is still accepted while
-  devices holding older keys roll over. A checker can be limited to a subset.
+- **One algorithm.** ML-DSA-87 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)) is the only algorithm a device signs
+  with and a checker accepts, so every proof is post-quantum. ES256, EdDSA,
+  ML-DSA-44, ML-DSA-65 and anything else are `unsupported`, however well
+  signed.
 - **The algorithm belongs to the key.** The header's `alg` must match the
   embedded [JWK](https://www.rfc-editor.org/rfc/rfc7517)'s key type. Anything else is `unsupported`.
 - **Signature first.** No claim is read before the signature has verified
@@ -51,21 +52,20 @@ All three pass every case in [`vectors/proof`](../vectors/proof).
 
 ## Device keys
 
-| Platform | [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) key | ES256 key (rollover only) |
-| --- | --- | --- |
-| Swift, device with a Secure Enclave | `SecureEnclave.MLDSA65.PrivateKey` | `SecureEnclave.P256.Signing.PrivateKey` |
-| Swift, no enclave (macOS without one, tests) | `MLDSA65.PrivateKey` | `P256.Signing.PrivateKey` |
-| Go | `*mldsa.PrivateKey` (`crypto/mldsa`), or any `crypto.Signer` holding one | `*ecdsa.PrivateKey` |
-| Rust | aws-lc-rs ML-DSA-65 from a 32-byte seed or PKCS#8 | aws-lc-rs P-256 from PKCS#8 |
+| Platform | [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) key |
+| --- | --- |
+| Swift, device with a Secure Enclave | `SecureEnclave.MLDSA87.PrivateKey` |
+| Swift, no enclave (macOS without one, tests) | `MLDSA87.PrivateKey` |
+| Go | `*mldsa.PrivateKey` (`crypto/mldsa`, `mldsa.MLDSA87()`), or any `crypto.Signer` holding one |
+| Rust | aws-lc-rs `ML_DSA_87_SIGNING` from a 32-byte seed or PKCS#8 |
 
 Swift's `MoqomKit.DeviceKey` chooses: an enclave key when
 `SecureEnclave.isAvailable` and creation succeeds, otherwise a software key.
 
-Every prover signs with fresh randomness: hedged ML-DSA-65 (FIPS 204's
-default) in CryptoKit, Go's `crypto/mldsa` and aws-lc-rs, and ECDSA with a
-random per-signature nonce. Go's `Prover.Deterministic()` returns a copy that
-signs deterministically instead, ML-DSA-65's deterministic variant and [RFC 6979](https://www.rfc-editor.org/rfc/rfc6979)
-for ECDSA, and it is how `go/proof/generate_test.go` makes the vectors
+Every prover signs with fresh randomness: hedged ML-DSA-87 (FIPS 204's
+default) in CryptoKit, Go's `crypto/mldsa` and aws-lc-rs. Go's
+`Prover.Deterministic()` returns a copy that signs with ML-DSA's deterministic
+variant instead, and it is how `go/proof/generate_test.go` makes the vectors
 reproducible. Swift and Rust have no deterministic mode, so for them the
 vectors are proofs to verify, not proofs to reproduce.
 
@@ -84,7 +84,7 @@ proof says:
   unescaping and byte for byte, so `jti` and `j\u0074i` are the same name and
   `jti` and `JTI` are not. Go's `encoding/json` keeps the last of a duplicate
   and matches struct fields regardless of case; neither is allowed to decide.
-- A known member (`alg`, `typ`, `jwk`; `kty`, `alg`, `pub`, `crv`, `x`, `y`;
+- A known member (`alg`, `typ`, `jwk`; `kty`, `alg`, `pub`;
   `ath`, `iat`, `jti`, `rel`) has its type or is absent. `null` is refused, not
   read as absent.
 - `iat` is an integer literal that fits in 64 bits: no fraction, no exponent,
@@ -97,7 +97,7 @@ proof says:
 
 Anything else is `malformed`.
 
-Every string the checker compares (`alg`, `typ`, `kty`, `crv`, member names,
+Every string the checker compares (`alg`, `typ`, `kty`, member names,
 the thumbprint, `ath`, `rel`, and the nonce as a store key) is compared byte for
 byte after unescaping. Swift's `==` treats canonically equivalent Unicode as
 equal, so there `kty` `A\u212AP` (with a Kelvin sign) would pass for `AKP`, and
@@ -107,16 +107,14 @@ them apart, and so does Swift's checker. A proof has no `htm`, `htu` or `kid`.
 Header:
 
 ```json
-{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-65","kty":"AKP","pub":"…"}}
-{"alg":"ES256","typ":"MOQT-POP","jwk":{"crv":"P-256","kty":"EC","x":"…","y":"…"}}
+{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-87","kty":"AKP","pub":"…"}}
 ```
 
 - `typ` is always `MOQT-POP`.
-- `jwk` is the device's public key. For [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) this is `kty` `AKP`, `alg`
-  `ML-DSA-65` and `pub`, the 1,952-byte raw public key in base64url
-  ([draft-ietf-cose-dilithium](https://datatracker.ietf.org/doc/draft-ietf-cose-dilithium/)). For ES256 it is an [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517) EC key with 32-byte
-  coordinates in canonical base64url. Any other length or spelling is
-  `malformed`. So is a `jwk` with a private member (`d`, `p`, `q`, `dp`, `dq`,
+- `jwk` is the device's public key: `kty` `AKP`, `alg` `ML-DSA-87` and `pub`,
+  the 2,592-byte raw [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) public key in base64url
+  ([draft-ietf-cose-dilithium](https://datatracker.ietf.org/doc/draft-ietf-cose-dilithium/)). Any other key type or `alg` is `unsupported`;
+  any other length or spelling is `malformed`. So is a `jwk` with a private member (`d`, `p`, `q`, `dp`, `dq`,
   `qi`, `oth`, `k`, `priv` or `seed`), whatever its value, even `null`: the
   device has published its key.
 
@@ -127,20 +125,18 @@ Claims:
 ```
 
 The signature is over the ASCII bytes `header "." claims`, exactly as they
-arrived. For ML-DSA-65 it is the 3,309-byte FIPS 204 signature with an empty
-context. For ES256 it is the 64-byte `r || s`.
+arrived: the 4,627-byte FIPS 204 ML-DSA-87 signature with an empty context.
 
 ### Thumbprints
 
-The token's `cnf.jkt` is the base64url SHA-256 of the key's canonical JSON:
-members in lexicographic order, no whitespace.
+The token's `cnf.jkt` is the base64url SHA-256 of the key's canonical JSON,
+members in lexicographic order with no whitespace, as [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638) computes it
+over the members [draft-ietf-cose-dilithium](https://datatracker.ietf.org/doc/draft-ietf-cose-dilithium/) gives AKP keys:
+`{"alg":"ML-DSA-87","kty":"AKP","pub":"…"}`.
 
-- EC P-256 ([RFC 7638](https://www.rfc-editor.org/rfc/rfc7638)): `{"crv":"P-256","kty":"EC","x":"…","y":"…"}`
-- AKP [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) ([draft-ietf-cose-dilithium](https://datatracker.ietf.org/doc/draft-ietf-cose-dilithium/)): `{"alg":"ML-DSA-65","kty":"AKP","pub":"…"}`
-
-A key that is the wrong size, non-canonically spelled, or of a different curve
-or algorithm has no thumbprint. That is `malformed` or `unsupported`, as
-the [thumbprint vectors](../vectors/proof/thumbprints.json) list.
+A key that is the wrong size, non-canonically spelled, or of another key type
+or algorithm (EC, OKP, ML-DSA-44, ML-DSA-65) has no thumbprint. That is
+`malformed` or `unsupported`, as the [thumbprint vectors](../vectors/proof/thumbprints.json) list.
 
 ### Where it travels
 
@@ -153,15 +149,15 @@ the [thumbprint vectors](../vectors/proof/thumbprints.json) list.
 
 ### Sizes
 
-| | [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) | ES256 |
-| --- | --- | --- |
-| Public [JWK](https://www.rfc-editor.org/rfc/rfc7517) | about 2.65 KB | about 120 B |
-| Proof | about 8.2 KB (8,194 B in the interop fixture) | about 0.5 KB |
+| | [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) |
+| --- | --- |
+| Public [JWK](https://www.rfc-editor.org/rfc/rfc7517) | about 3.5 KB |
+| Proof | about 11 KB |
 
 Every checker refuses a proof longer than 16 KiB before parsing it. A MOQT
 parameter value and a control message body may each be up to 65,535 bytes, so
-a SETUP carrying an ML-DSA token (at most 8 KiB) and an ML-DSA proof fits with
-room to spare. The control plane's /join and relay-link request bodies are
+a SETUP carrying an ML-DSA-87 token (at most 8 KiB) and an ML-DSA-87 proof
+fits with room to spare. The control plane's /join and relay-link request bodies are
 capped at 16 KiB, which fits an AKP key and three names of the maximum length.
 
 ## Check order
@@ -191,13 +187,13 @@ capped at 16 KiB, which fits an AKP key and three names of the maximum length.
 ```go
 import "github.com/moqom-cloud/moqom-security/go/proof"
 
-device, err := proof.GenerateProver(proof.MLDSA65) // or proof.NewProver(signer)
+device, err := proof.GenerateProver(proof.MLDSA87) // or proof.NewProver(signer)
 device.JWK()        // proof.JWK, sent to /join
 device.Thumbprint() // the token's cnf.jkt
 p, err := device.Prove(token, certHash[:], proof.NewNonce(), time.Now())
 
 checker, err := proof.NewChecker(proof.NewDefaultMemoryNonceStore(),
-    // proof.WithAlgorithms(proof.MLDSA65), // default: both
+    // proof.WithAlgorithms(proof.MLDSA87), // the default and only one
     // proof.WithWindow(proof.DefaultWindow),
     // proof.WithCertificateRequired(true), // refuse everything when certHash is empty
 )
@@ -224,7 +220,7 @@ Swift. `NonceStore` is one method:
 ```rust
 use moqom_proof::{Algorithm, Checker, MemoryNonceStore, Prover, nonce, DEFAULT_CAPACITY};
 
-let device = Prover::generate(Algorithm::MlDsa65)?; // or ml_dsa_65_from_seed, from_pkcs8
+let device = Prover::generate(Algorithm::MlDsa87)?; // or ml_dsa_87_from_seed, from_pkcs8
 device.jwk_json();   // sent to /join
 device.thumbprint(); // the token's cnf.jkt
 let proof = device.prove(token, &cert_hash, &nonce()?, SystemTime::now())?;
@@ -237,7 +233,7 @@ checker.check(&proof, token, Some(&cert_hash), &jkt, SystemTime::now(), expiry)?
 // Err(moqom_proof::Error::WrongCertificate); error.class() == "wrong_certificate"
 ```
 
-`Jwk` has `ml_dsa_65(pub)`, `p256(x, y)`, `algorithm()`, `canonical()` and
+`Jwk` has `ml_dsa_87(pub)`, `algorithm()`, `canonical()` and
 `thumbprint()`. `Prover` also has `to_pkcs8`, `algorithm`, `jwk` and
 `public_key`. `MemoryNonceStore::new` refuses a capacity of zero,
 `with_algorithms` an empty slice and `with_window` a zero window, with
@@ -251,8 +247,8 @@ checker.check(&proof, token, Some(&cert_hash), &jkt, SystemTime::now(), expiry)?
 ```swift
 import MoqomProof
 
-let device = Prover(.secureEnclaveMLDSA65(try SecureEnclave.MLDSA65.PrivateKey()))
-// or .mlDSA65(MLDSA65.PrivateKey()), .es256(…), .secureEnclaveES256(…)
+let device = Prover(.secureEnclaveMLDSA87(try SecureEnclave.MLDSA87.PrivateKey()))
+// or .mlDSA87(MLDSA87.PrivateKey())
 device.jwk         // ProofJWK, sent to /join
 device.thumbprint  // the token's cnf.jkt
 let proof = try device.prove(token: token, certificateHash: certHash, nonce: Prover.nonce())
@@ -307,20 +303,21 @@ Go's `ErrSigning` wraps the signer's own error, so `errors.Is` finds both.
 [`vectors/proof`](../vectors/proof) follows the [common format](../vectors/README.md);
 times are Unix seconds in `now`.
 
-- `keys.json` (4 cases): [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) keys from seeds and P-256 keys from
-  scalars, with the public [JWK](https://www.rfc-editor.org/rfc/rfc7517) and thumbprint each must produce.
-- `thumbprints.json` (13 cases): [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638) and AKP thumbprints, and 9 keys that
-  have none (`malformed` 4, `unsupported` 5).
-- `proofs.json` (104 cases): proofs to check against `token`,
+- `keys.json` (2 cases): [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) keys from seeds, with the public [JWK](https://www.rfc-editor.org/rfc/rfc7517)
+  and thumbprint each must produce.
+- `thumbprints.json` (11 cases): one AKP ML-DSA-87 thumbprint, and 10 keys
+  that have none (`malformed` 2, `unsupported` 8: EC, OKP, ML-DSA-44,
+  ML-DSA-65, and each `alg` on the other's key).
+- `proofs.json` (93 cases): proofs to check against `token`,
   `certificate_hash_hex`, `thumbprint` and `now`, with nonces in `spent`
   already spent, until `until`, at a checker that requires a certificate if
   `require_certificate` is set. An empty `certificate_hash_hex` is a checker
-  with none. 15 are valid, and 89 must be refused: `malformed` 54 (6 of them
-  keys carrying a private member, 31 of them headers or claims that JSON
-  parsers could read differently, all signed), `unsupported` 8,
-  `bad_signature` 6, `wrong_key` 4, `wrong_token` 3, `wrong_certificate` 8 (4
-  of them at a checker with no certificate), `expired` 2, `not_yet_valid` 2,
-  `replayed` 2.
+  with none. 13 are valid, and 80 must be refused: `malformed` 49 (3 of them
+  keys carrying a private member, most of the rest headers or claims that
+  JSON parsers could read differently, all signed), `unsupported` 14
+  (correctly signed ES256 and ML-DSA-65 proofs among them), `bad_signature`
+  4, `wrong_key` 2, `wrong_token` 2, `wrong_certificate` 6 (3 of them at a
+  checker with no certificate), `expired` 1, `not_yet_valid` 1, `replayed` 1.
 
 They are generated by `go/proof/generate_test.go`. The products also share an
 interop fixture, `moqom-relay/tests/testdata/possession.json` in the engine.

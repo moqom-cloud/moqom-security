@@ -19,9 +19,9 @@ private final class Backend: Sendable {
 
     init(certificateHash: Data) throws {
         // Generate the issuer key once and keep `issuer.seed` in your secret manager.
-        issuer = Signer(privateKey: try MLDSA65.PrivateKey(), keyID: "2026-10")
+        issuer = Signer(privateKey: try MLDSA87.PrivateKey(), keyID: "2026-10")
         verifier = Verifier(issuer: "https://api.example.com", tenant: "acme", keys: [issuer.publicKey])
-        checker = try Checker(store: MemoryNonceStore(), algorithms: [.mlDSA65], requireCertificate: true)
+        checker = try Checker(store: MemoryNonceStore(), algorithms: [.mlDSA87], requireCertificate: true)
         self.certificateHash = certificateHash
     }
 
@@ -104,9 +104,9 @@ private final class PinnedServer: NSObject, URLSessionDelegate {
 /// The app's enrolment, compiled but not run: `swift test` may have no Secure Enclave.
 private func enrolmentInAnApp() throws -> Data {
     // Once per device: a key in the Secure Enclave. Keep key.dataRepresentation in the keychain
-    // and load it again with SecureEnclave.MLDSA65.PrivateKey(dataRepresentation:).
-    let key = try SecureEnclave.MLDSA65.PrivateKey()
-    let device = Prover(.secureEnclaveMLDSA65(key))
+    // and load it again with SecureEnclave.MLDSA87.PrivateKey(dataRepresentation:).
+    let key = try SecureEnclave.MLDSA87.PrivateKey()
+    let device = Prover(.secureEnclaveMLDSA87(key))
     return try JSONEncoder().encode(device.jwk) // POST this after your sign-in
 }
 
@@ -115,8 +115,8 @@ private func enrolmentInAnApp() throws -> Data {
         let serverCertificate = Data(SHA256.hash(data: Data("your server's leaf certificate, DER".utf8)))
         let backend = try Backend(certificateHash: serverCertificate)
 
-        // On the device. In an app: Prover(.secureEnclaveMLDSA65(try SecureEnclave.MLDSA65.PrivateKey())).
-        let device = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        // On the device. In an app: Prover(.secureEnclaveMLDSA87(try SecureEnclave.MLDSA87.PrivateKey())).
+        let device = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
         let token = try backend.enrol(user: "ada", key: try JSONEncoder().encode(device.jwk))
 
         // Each request: the token, and a fresh proof for the server's certificate.
@@ -127,7 +127,7 @@ private func enrolmentInAnApp() throws -> Data {
         #expect(backend.me(token: token, proof: proof) == "401 replayed")
 
         // A stolen token, proved with the thief's own key.
-        let thief = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        let thief = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
         let stolen = try thief.prove(token: Data(token.utf8), certificateHash: serverCertificate, nonce: Prover.nonce())
         #expect(backend.me(token: token, proof: stolen) == "401 wrong_key")
 

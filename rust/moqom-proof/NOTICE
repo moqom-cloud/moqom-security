@@ -27,12 +27,3 @@ vectors/mls/mlswg-*.json hold test vectors copied, with a "name" field added,
 from the MLS working group's repository, github.com/mlswg/mls-implementations,
 at commit 2034fe72e0c805a683ba76165660c834f2a8142a. They are Contributions to
 the IETF under BCP 78 and remain the property of their contributors.
-
-vectors/mls/xwing-draft.json holds test vectors copied, with a "name" field
-added, from github.com/dconnolly/draft-connolly-cfrg-xwing-kem at commit
-984c2f7a93b8f8d8f8073ebb53f9f4ce50b5babd, and vectors/mls/hpkewg-xwing.json
-holds a test vector copied from github.com/hpkewg/hpke-pq at commit
-6433c8fce0b8b749dfc86c1095081a88698ccfab. Both repositories state that their
-material is Contributions to the IETF under BCP 78 and BCP 79 and the IETF
-Trust Legal Provisions, under which code components are licensed under the
-Simplified BSD License; they remain the property of their contributors.

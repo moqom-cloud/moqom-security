@@ -10,16 +10,13 @@ import Foundation
 /// algorithm confusion: a verifier that dispatches on the token's own `alg` can
 /// be told to use `none`, or an HMAC keyed with the public key.
 public enum Algorithm: String, Hashable, Sendable {
-    /// ML-DSA-65, which every token is signed with.
-    case mlDSA65 = "ML-DSA-65"
-    /// Ed25519, read only to verify tokens signed before ML-DSA.
-    case ed25519 = "EdDSA"
+    /// ML-DSA-87, which every token is signed and verified with.
+    case mlDSA87 = "ML-DSA-87"
 
     /// The length of a raw public key.
     public var publicKeyBytes: Int {
         switch self {
-        case .mlDSA65: 1952
-        case .ed25519: 32
+        case .mlDSA87: 2592
         }
     }
 }
@@ -60,27 +57,16 @@ public struct PublicKey: Hashable, Sendable {
     /// Whether `signature` is this key's over `message`, by its own algorithm.
     public func isValidSignature(_ signature: Data, for message: Data) -> Bool {
         switch algorithm {
-        case .mlDSA65:
-            guard let key = try? MLDSA65.PublicKey(rawRepresentation: rawRepresentation) else { return false }
-            return key.isValidSignature(signature, for: message)
-        case .ed25519:
-            guard let key = try? Curve25519.Signing.PublicKey(rawRepresentation: rawRepresentation) else { return false }
+        case .mlDSA87:
+            guard let key = try? MLDSA87.PublicKey(rawRepresentation: rawRepresentation) else { return false }
             return key.isValidSignature(signature, for: message)
         }
     }
 
-    /// The key as a JWK: AKP for ML-DSA-65, per the JOSE ML-DSA draft, or OKP
-    /// for Ed25519.
+    /// The key as a JWK: AKP with `alg` `ML-DSA-87`, per the JOSE ML-DSA draft.
     public var jwk: String {
-        let encoded = rawRepresentation.base64URL
-        return switch algorithm {
-        case .mlDSA65:
-            JSON.object([("kty", JSON.string("AKP")), ("alg", JSON.string("ML-DSA-65")),
-                         ("kid", JSON.string(id)), ("pub", JSON.string(encoded))])
-        case .ed25519:
-            JSON.object([("kty", JSON.string("OKP")), ("crv", JSON.string("Ed25519")),
-                         ("kid", JSON.string(id)), ("x", JSON.string(encoded))])
-        }
+        JSON.object([("kty", JSON.string("AKP")), ("alg", JSON.string(algorithm.rawValue)),
+                     ("kid", JSON.string(id)), ("pub", JSON.string(rawRepresentation.base64URL))])
     }
 
     /// Why a JWK set or a raw key was refused. Each is one of the error
@@ -90,7 +76,7 @@ public struct PublicKey: Hashable, Sendable {
         /// that is not an object, a member that is null, of the wrong type or
         /// named twice, or a key with no `kty` or no `kid`.
         case malformed(String)
-        /// A key that is not AKP/ML-DSA-65 or OKP/Ed25519.
+        /// A key that is not AKP/ML-DSA-87.
         case unsupported(kid: String)
         /// Key material that is not canonical base64url or not the algorithm's
         /// length, in a set or given raw.
@@ -112,7 +98,7 @@ public struct PublicKey: Hashable, Sendable {
         public var description: String {
             switch self {
             case let .malformed(why): "not a JWK set: \(why)"
-            case let .unsupported(kid): "key \(kid): only AKP/ML-DSA-65 and OKP/Ed25519 are supported"
+            case let .unsupported(kid): "key \(kid): only AKP/ML-DSA-87 is supported"
             case let .invalid(kid, reason): "key \(kid): \(reason)"
             case let .duplicateKeyID(kid): "key ID \(kid) appears twice in the set"
             }
@@ -122,13 +108,13 @@ public struct PublicKey: Hashable, Sendable {
     /// Read a JWK set, as a bare array or wrapped in `{"keys": [...]}`.
     ///
     /// The whole document is read first (``SetError/malformed(_:)``), then each
-    /// key in order: it must be AKP/ML-DSA-65 or OKP/Ed25519
-    /// (``SetError/unsupported(kid:)``), its public key must be canonical
-    /// base64url of the right length (``SetError/invalid(kid:reason:)``), and
-    /// its `kid` must not repeat one before it (``SetError/duplicateKeyID(_:)``).
-    /// A key that fails is refused rather than skipped, because a set that
-    /// silently lost a key verifies fewer tokens than its author thinks.
-    /// Members a key does not need (`use`, `key_ops`) are ignored.
+    /// key in order: it must be AKP/ML-DSA-87 (``SetError/unsupported(kid:)``),
+    /// its public key must be canonical base64url of the right length
+    /// (``SetError/invalid(kid:reason:)``), and its `kid` must not repeat one
+    /// before it (``SetError/duplicateKeyID(_:)``). A key that fails is refused
+    /// rather than skipped, because a set that silently lost a key verifies
+    /// fewer tokens than its author thinks. Members a key does not need (`use`,
+    /// `key_ops`, `crv`, `x`) are ignored.
     public static func parseSet(_ document: Data) throws(SetError) -> [PublicKey] {
         guard StrictJSON.isValid(document) else { throw .malformed("not strict JSON, or a member named twice") }
         let jwks: [JWK]
@@ -144,20 +130,13 @@ public struct PublicKey: Hashable, Sendable {
         var keys: [PublicKey] = []
         var seen: Set<[UInt8]> = []
         for jwk in jwks {
-            let algorithm: Algorithm
-            let field: String
-            let name: String
-            if jwk.kty == "AKP", jwk.alg == "ML-DSA-65" {
-                (algorithm, field, name) = (.mlDSA65, jwk.pub, "pub")
-            } else if jwk.kty == "OKP", jwk.crv == "Ed25519" {
-                (algorithm, field, name) = (.ed25519, jwk.x, "x")
-            } else {
+            guard jwk.kty == "AKP", jwk.alg == Algorithm.mlDSA87.rawValue else {
                 throw .unsupported(kid: jwk.kid)
             }
-            guard let raw = Data(base64URL: field) else {
-                throw .invalid(kid: jwk.kid, reason: "\(name) is not base64url")
+            guard let raw = Data(base64URL: jwk.pub) else {
+                throw .invalid(kid: jwk.kid, reason: "pub is not base64url")
             }
-            let key = try PublicKey(id: jwk.kid, algorithm: algorithm, rawRepresentation: raw)
+            let key = try PublicKey(id: jwk.kid, algorithm: .mlDSA87, rawRepresentation: raw)
             guard seen.insert(Array(jwk.kid.utf8)).inserted else { throw .duplicateKeyID(jwk.kid) }
             keys.append(key)
         }
@@ -167,7 +146,7 @@ public struct PublicKey: Hashable, Sendable {
     /// One key of a set, with exact member names, a null refused, and `kty`
     /// and a non-empty `kid` required.
     private struct JWK: Decodable {
-        let kty, crv, alg, kid, x, `pub`: String
+        let kty, alg, kid, `pub`: String
 
         init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: Member.self)
@@ -175,10 +154,8 @@ public struct PublicKey: Hashable, Sendable {
                 throw DecodingError.keyNotFound(Member("kty"), .init(codingPath: c.codingPath, debugDescription: "no kty"))
             }
             kty = try c.value("kty", or: "")
-            crv = try c.value("crv", or: "")
             alg = try c.value("alg", or: "")
             kid = try c.value("kid", or: "")
-            x = try c.value("x", or: "")
             self.pub = try c.value("pub", or: "")
             if kid.isEmpty {
                 throw DecodingError.dataCorrupted(.init(codingPath: c.codingPath, debugDescription: "no kid"))
@@ -199,22 +176,22 @@ public struct PublicKey: Hashable, Sendable {
     }
 }
 
-/// Mints tokens with an ML-DSA-65 key.
+/// Mints tokens with an ML-DSA-87 key.
 public struct Signer: Sendable {
-    private let privateKey: MLDSA65.PrivateKey
+    private let privateKey: MLDSA87.PrivateKey
     /// The `kid` tokens from this signer carry.
     public let keyID: String
 
     /// A signer for `privateKey`, named `keyID` or by
     /// ``PublicKey/derivedID(for:)`` when nil.
-    public init(privateKey: MLDSA65.PrivateKey, keyID: String? = nil) {
+    public init(privateKey: MLDSA87.PrivateKey, keyID: String? = nil) {
         self.privateKey = privateKey
         self.keyID = keyID ?? PublicKey.derivedID(for: privateKey.publicKey.rawRepresentation)
     }
 
     /// A signer from a 32-byte FIPS 204 seed.
     public init(seed: Data, keyID: String? = nil) throws {
-        self.init(privateKey: try MLDSA65.PrivateKey(seedRepresentation: seed, publicKey: nil), keyID: keyID)
+        self.init(privateKey: try MLDSA87.PrivateKey(seedRepresentation: seed, publicKey: nil), keyID: keyID)
     }
 
     /// The 32-byte FIPS 204 seed, for storing the key.
@@ -222,7 +199,7 @@ public struct Signer: Sendable {
 
     /// The half a verifier needs.
     public var publicKey: PublicKey {
-        PublicKey(checkedID: keyID, algorithm: .mlDSA65, rawRepresentation: privateKey.publicKey.rawRepresentation)
+        PublicKey(checkedID: keyID, algorithm: .mlDSA87, rawRepresentation: privateKey.publicKey.rawRepresentation)
     }
 
     /// Mint a token carrying `claims`, exactly as given.
@@ -233,7 +210,7 @@ public struct Signer: Sendable {
     /// `iat` and `exp` unset, out of order, or more than fifteen minutes apart.
     /// CryptoKit's own failures are rethrown as they are.
     public func sign(_ claims: Claims) throws -> String {
-        let input = try claims.signingInput(algorithm: .mlDSA65, keyID: keyID)
+        let input = try claims.signingInput(algorithm: .mlDSA87, keyID: keyID)
         return input + "." + (try signature(for: Data(input.utf8))).base64URL
     }
 

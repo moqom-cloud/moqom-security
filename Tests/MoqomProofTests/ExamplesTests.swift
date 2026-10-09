@@ -13,7 +13,7 @@ struct ExamplesTests {
     @Test("a device proves, a relay checks, and a replay is refused")
     func proveAndCheck() throws {
         // On the device.
-        let device = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        let device = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
         let jkt = device.thumbprint // the control plane puts this in the token's cnf.jkt
         let token = Data("eyJhbGciOiJNTC1EU0EtNjUi...".utf8)
         let relayCertificate = Data(SHA256.hash(data: Data("the relay's leaf certificate, DER".utf8)))
@@ -31,19 +31,19 @@ struct ExamplesTests {
 
     @Test("a software device key is stored as its seed and loaded again")
     func storeAKey() throws {
-        let key = try MLDSA65.PrivateKey()
+        let key = try MLDSA87.PrivateKey()
         let seed = key.seedRepresentation
 
-        let loaded = Prover(.mlDSA65(try MLDSA65.PrivateKey(seedRepresentation: seed, publicKey: nil)))
+        let loaded = Prover(.mlDSA87(try MLDSA87.PrivateKey(seedRepresentation: seed, publicKey: nil)))
         #expect(seed.count == 32)
-        #expect(loaded.algorithm == .mlDSA65)
-        #expect(loaded.thumbprint == Prover(.mlDSA65(key)).thumbprint)
+        #expect(loaded.algorithm == .mlDSA87)
+        #expect(loaded.thumbprint == Prover(.mlDSA87(key)).thumbprint)
     }
 
     @Test("each refusal names the check that failed")
     func refusals() throws {
-        let device = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
-        let stranger = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        let device = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
+        let stranger = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
         let token = Data("eyJhbGciOiJNTC1EU0EtNjUi...".utf8)
         let relay = Data(SHA256.hash(data: Data("relay A's leaf certificate".utf8)))
         let other = Data(SHA256.hash(data: Data("relay B's leaf certificate".utf8)))
@@ -65,30 +65,13 @@ struct ExamplesTests {
         #expect(ProofError.expired.errorClass == "expired")
     }
 
-    @Test("an ES256 key is accepted by default and refused by a checker limited to ML-DSA-65")
-    func rollover() throws {
-        let older = Prover(.es256(P256.Signing.PrivateKey()))
-        let token = Data("eyJhbGciOiJNTC1EU0EtNjUi...".utf8)
-        let relay = Data(SHA256.hash(data: Data("the relay's leaf certificate, DER".utf8)))
-        let now = Date()
-        let expiry = now.addingTimeInterval(15 * 60)
-        let proof = try older.prove(token: token, certificateHash: relay, nonce: Prover.nonce(), issuedAt: now)
-
-        let both = Checker(store: MemoryNonceStore())
-        let strict = try Checker(store: MemoryNonceStore(), algorithms: [.mlDSA65])
-        try both.check(proof, token: token, certificateHash: relay, thumbprint: older.thumbprint, now: now, until: expiry)
-        #expect(throws: ProofError.unsupported) {
-            try strict.check(proof, token: token, certificateHash: relay, thumbprint: older.thumbprint, now: now, until: expiry)
-        }
-    }
-
     @Test("checkers that share a store refuse a proof another has accepted")
     func sharedStore() throws {
         let store = MemoryNonceStore()
         let first = Checker(store: store)
         let second = Checker(store: store)
 
-        let device = Prover(.mlDSA65(try MLDSA65.PrivateKey()))
+        let device = Prover(.mlDSA87(try MLDSA87.PrivateKey()))
         let token = Data("eyJhbGciOiJNTC1EU0EtNjUi...".utf8)
         let relay = Data(SHA256.hash(data: Data("the relay's leaf certificate, DER".utf8)))
         let now = Date()

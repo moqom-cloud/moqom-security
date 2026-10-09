@@ -3,18 +3,18 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use aws_lc_rs::signature::{ECDSA_P256_SHA256_FIXED, ML_DSA_65, UnparsedPublicKey};
+use aws_lc_rs::signature::{ML_DSA_87, UnparsedPublicKey};
 use serde::Deserialize;
 
 use crate::json::{object, present};
-use crate::jwk::{PRIVATE_MEMBERS, PublicKey};
+use crate::jwk::PRIVATE_MEMBERS;
 use crate::{
     Algorithm, Error, Jwk, MemoryNonceStore, NonceStore, PROOF_TYPE, b64, constant_time_eq,
     sha256_b64, unb64,
 };
 
 /// A proof may not be larger than this, checked before any parsing. An
-/// ML-DSA-65 proof, key included, is about 8 KB.
+/// ML-DSA-87 proof, key included, is about 11 KB.
 pub const MAX_PROOF_BYTES: usize = 16 * 1024;
 
 /// How far a proof's `iat` may be from the checker's clock, either way, unless
@@ -182,13 +182,9 @@ impl<S: NonceStore> Checker<S> {
         if jwk.algorithm()? != alg {
             return Err(Error::Unsupported);
         }
-        let key = match jwk.public_key()? {
-            PublicKey::MlDsa65(raw) => UnparsedPublicKey::new(&ML_DSA_65, raw).parse(),
-            PublicKey::Es256(point) => {
-                UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, point).parse()
-            }
-        }
-        .map_err(|_| Error::Malformed("the key is not a valid public key"))?;
+        let key = UnparsedPublicKey::new(&ML_DSA_87, jwk.public_key()?)
+            .parse()
+            .map_err(|_| Error::Malformed("the key is not a valid public key"))?;
         key.verify_sig(signed, &signature)
             .map_err(|_| Error::BadSignature)?;
 

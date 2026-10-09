@@ -4,10 +4,7 @@
 package proof
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/mldsa"
-	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -51,21 +48,11 @@ func TestKeyVectors(t *testing.T) {
 			var prover *Prover
 			var err error
 			switch Algorithm(v.Alg) {
-			case MLDSA65:
+			case MLDSA87:
 				var key *mldsa.PrivateKey
-				key, err = mldsa.NewPrivateKey(mldsa.MLDSA65(), decodeHex(t, v.SeedHex))
+				key, err = mldsa.NewPrivateKey(mldsa.MLDSA87(), decodeHex(t, v.SeedHex))
 				if err == nil {
 					prover, err = NewProver(key)
-				}
-			case ES256:
-				var key *ecdsa.PrivateKey
-				key, err = ecdsa.ParseRawPrivateKey(elliptic.P256(), decodeHex(t, v.PrivateHex))
-				if err == nil {
-					prover, err = NewProver(key)
-				}
-				parsed, perr := x509.ParsePKCS8PrivateKey(decodeHex(t, v.PKCS8Hex))
-				if perr != nil || !parsed.(*ecdsa.PrivateKey).Equal(key) {
-					t.Errorf("pkcs8_hex is not the same key: %v", perr)
 				}
 			default:
 				t.Fatalf("unknown alg %q", v.Alg)
@@ -87,7 +74,7 @@ func TestThumbprintVectors(t *testing.T) {
 	_, cases := readVectors[thumbprintCase](t, "thumbprints.json")
 	for _, v := range cases {
 		t.Run(v.Name, func(t *testing.T) {
-			got, err := v.JWK.Thumbprint()
+			got, err := v.JWK.jwk().Thumbprint()
 			if v.Error != "" {
 				if Class(err) != v.Error {
 					t.Errorf("error = %v (%q), want %q", err, Class(err), v.Error)

@@ -58,7 +58,7 @@ fn a_key_survives_pkcs8() {
 
 #[test]
 fn an_ml_dsa_proof_fits_the_limit() {
-    let prover = Prover::generate(Algorithm::MlDsa65).unwrap();
+    let prover = Prover::generate(Algorithm::MlDsa87).unwrap();
     let proof = prover
         .prove(&[b't'; 5000], &CERTIFICATE, &nonce().unwrap(), now())
         .unwrap();
@@ -70,28 +70,8 @@ fn an_ml_dsa_proof_fits_the_limit() {
 }
 
 #[test]
-fn a_checker_can_refuse_es256() {
-    let prover = Prover::generate(Algorithm::Es256).unwrap();
-    let proof = prover.prove(b"t", &CERTIFICATE, "n", now()).unwrap();
-    let checker = Checker::new(MemoryNonceStore::default())
-        .with_algorithms(&[Algorithm::MlDsa65])
-        .unwrap();
-    assert_eq!(
-        checker.check(
-            &proof,
-            b"t",
-            Some(&CERTIFICATE),
-            prover.thumbprint(),
-            now(),
-            until()
-        ),
-        Err(Error::Unsupported)
-    );
-}
-
-#[test]
 fn no_certificate_leaves_the_binding_unchecked() {
-    let prover = Prover::generate(Algorithm::MlDsa65).unwrap();
+    let prover = Prover::generate(Algorithm::MlDsa87).unwrap();
     let proof = prover.prove(b"t", &[], "n", now()).unwrap();
     let checker = Checker::new(MemoryNonceStore::default());
     assert_eq!(
@@ -114,7 +94,7 @@ fn the_store_sweeps_expired_nonces_and_fails_closed() {
 #[test]
 fn nonces_are_fresh_and_a_proof_needs_one() {
     assert_ne!(nonce().unwrap(), nonce().unwrap());
-    let prover = Prover::generate(Algorithm::MlDsa65).unwrap();
+    let prover = Prover::generate(Algorithm::MlDsa87).unwrap();
     assert!(matches!(
         prover.prove(b"t", &CERTIFICATE, "", now()),
         Err(Error::Malformed(_))
@@ -150,7 +130,7 @@ fn settings_that_cannot_work_are_refused_at_construction() {
 /// must not get the proof accepted twice once the store sweeps.
 #[test]
 fn a_short_until_cannot_reopen_replay() {
-    let prover = Prover::generate(Algorithm::MlDsa65).unwrap();
+    let prover = Prover::generate(Algorithm::MlDsa87).unwrap();
     let checker = Checker::new(MemoryNonceStore::new(2).unwrap());
     let proof = prover
         .prove(b"a.token", &CERTIFICATE, &nonce().unwrap(), now())

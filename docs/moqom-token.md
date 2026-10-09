@@ -6,9 +6,9 @@
 The MOQOM access token: a compact [JWS](https://www.rfc-editor.org/rfc/rfc7515) that the control plane signs and that
 relays and direct-path peers verify. A token says who someone is (tenant, user
 and the device key they hold), which room they may join and what they may do
-there, and for how long. It is signed with ML-DSA-65 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)). Ed25519 keys
-can still verify, but nothing signs with them, so tokens minted before the
-move to ML-DSA keep working until they expire.
+there, and for how long. It is signed with ML-DSA-87 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)), the only
+algorithm a token is signed or verified with: Ed25519, ES256 and ML-DSA-65
+keys and tokens are refused.
 
 The library is the same in Swift (`MoqomToken`), Go
 (`github.com/moqom-cloud/moqom-security/go/token`) and Rust (`moqom-token`).
@@ -16,7 +16,7 @@ All three pass every case in [`vectors/token`](../vectors/token).
 
 ## What it does
 
-- **Signs and verifies, nothing else.** A `Signer` holds one [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) key and
+- **Signs and verifies, nothing else.** A `Signer` holds one [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) key and
   its key ID (`kid`). A `Verifier` holds a set of public keys, an issuer, and
   optionally a tenant. `verify(token, now)` returns the claims only if every
   check passes. No API returns claims from a token that has not been
@@ -27,8 +27,8 @@ All three pass every case in [`vectors/token`](../vectors/token).
 - **The algorithm belongs to the key.** Each public key carries its algorithm,
   and the header's `alg` must match it exactly. If it doesn't, the token is
   `unsupported`. That rules out the usual JOSE confusions: `none`, HMAC keyed
-  with the public key, and an Ed25519 signature checked against an ML-DSA key
-  ID.
+  with the public key, and a token naming `EdDSA`, `ES256` or `ML-DSA-65`
+  for an ML-DSA-87 key ID.
 - **Fifteen minutes at most.** A signer refuses to mint a token that lasts
   longer than 900 seconds, or whose expiry is not after its issue time. A
   verifier refuses one that would last longer: `exp − iat > 900` when it has an
@@ -44,8 +44,8 @@ All three pass every case in [`vectors/token`](../vectors/token).
   the same rules as a token's segments (see Parsing rules): member names are
   exact, a `null` or repeated member is refused, each key is an object, and
   every key needs a `kty` and a non-empty `kid` (`set_malformed`). Then each key in order: it must be `AKP` /
-  `ML-DSA-65` or `OKP` / `Ed25519` (`key_unsupported`), its public key must be
-  canonical base64url of the right length (`key_invalid`), and its `kid` must
+  `ML-DSA-87` (`key_unsupported`), its `pub` must be
+  canonical base64url of 2,592 bytes (`key_invalid`), and its `kid` must
   not repeat an earlier one, byte for byte (`duplicate_kid`). A key that doesn't fit makes the
   set an error rather than being skipped, and two keys under one `kid` would
   leave which one a token selects to the parser. Members a key doesn't need
@@ -79,7 +79,7 @@ first two segments exactly as received, and the token is at most 8,192 bytes.
 The header has exactly these members, and any other parameter is malformed:
 
 ```json
-{"alg":"ML-DSA-65","typ":"MOQT","kid":"…"}
+{"alg":"ML-DSA-87","typ":"MOQT","kid":"…"}
 ```
 
 The claims, in the order the signer writes them:
@@ -95,7 +95,6 @@ The claims, in the order the signer writes them:
 | `cnf` | `{"jkt": string}` | Device key thumbprint. Required. |
 | `moqt` | object | The grant (see below) |
 | `via` | string | Who brought this person in. Omitted when empty. |
-| `e2ee` | string | Room encryption policy. Omitted when empty. |
 
 The grant, `moqt`:
 
@@ -159,6 +158,45 @@ and the sign vectors pin it byte for byte:
 Go signs deterministically only in the vector generator. Production signing in
 all three languages is hedged or randomized, so Rust and Swift check the
 signing input byte for byte and that their own tokens verify.
+
+## Sealed tokens
+
+A signed token's claims are readable by anyone holding it: base64url is an encoding, not
+encryption. A sealed token is the same signed token encrypted for its verifiers, so to everyone
+else, the device and app holding it included, it's opaque bytes:
+
+```text
+base64url( 0x01 | key ID (8 bytes) | nonce (12 bytes) | AES-256-GCM(segments) )
+```
+
+- **Additional data:** the version byte and the key ID, so neither can be changed without the
+  token failing to open.
+- **Segments:** the JWS header and claims, each after a two-byte big-endian length, then the
+  signature, all as raw bytes rather than base64url. A sealed token is about fifty bytes longer
+  than the signed one.
+- **Key ID:** eight random bytes, not a name, so it says nothing about whose token it is.
+- **Keys:** RFC 7517 `oct` JWKs with `alg` `A256GCM`, an eight-byte `kid` and a 32-byte `k`.
+  The issuer and every verifier hold them, and nobody else. Rotate a key well before it has
+  sealed 2³² tokens, NIST SP 800-38D's limit for random nonces; verifiers hold several by ID,
+  as they do signing keys.
+- **No extra authority:** sealing adds confidentiality only. A verifier opens the token, then
+  verifies the signature and claims exactly as for a signed token, so holding a seal key doesn't
+  let anyone mint.
+
+A verifier given seal keys refuses a token that isn't sealed (`unsupported`), unless it's told
+to accept both while its issuer moves to sealing. Opening fails as `malformed` for a token cut
+short or not base64url, `unsupported` for another version, `unknown_key` for a key ID it doesn't
+hold, and `bad_signature` for anything that doesn't authenticate.
+
+| | Seal | Open and verify |
+| --- | --- | --- |
+| Go | `key.Seal(jws)` | `NewVerifier(iss, keys...).WithSealKeys(sealKeys...)`, `AcceptingUnsealed()` for the overlap |
+| Rust | `key.seal(&jws)` | `Verifier::new(iss, keys).with_seal_keys(seal_keys)`, `accepting_unsealed()` |
+| Swift | `try key.seal(jws)` | `Verifier(issuer:keys:sealKeys:acceptsUnsealed:)` |
+
+Load keys with `ParseSealKeySet`, `SealKey::parse_set` or `SealKey.parseSet`, and make new ones
+with `GenerateSealKey`, `SealKey::generate` or `SealKey.generate()`. `vectors/token/seal.json`
+pins the format byte for byte.
 
 ## Verification order
 
@@ -236,8 +274,8 @@ let claims = verifier.verify(jws.as_bytes(), SystemTime::now())?;
 // Err(moqom_token::Error::Expired), …; error.class() == "expired"
 ```
 
-`PublicKey` has `ml_dsa_65(id, bytes)` and `ed25519(id, bytes)`, which refuse
-the wrong length with `KeyError::Invalid`, `verifies(msg, sig)` and `jwk()`;
+`PublicKey` has `ml_dsa_87(id, bytes)`, which refuses anything but 2,592
+bytes with `KeyError::Invalid`, `verifies(msg, sig)` and `jwk()`;
 its fields are public to read, and it cannot be built field by field outside
 the crate. `key_id(raw)` derives a key ID. `Signer` has
 `generate()`, `seed()`, `id()`, `public_key()` and `sign_message(msg)`.
@@ -307,7 +345,7 @@ Loading a key set, or a raw key (the `key_invalid` row):
 | Class | Go | Rust (`KeyError`) | Swift (`PublicKey.SetError`) | Meaning |
 | --- | --- | --- | --- | --- |
 | `set_malformed` | `ErrKeySetMalformed` | `Malformed(why)` | `.malformed(why)` | Not a [JWK](https://www.rfc-editor.org/rfc/rfc7517) set, a `null`, mistyped or repeated member, or a key with no `kty` or `kid` |
-| `key_unsupported` | `ErrKeyUnsupported` | `Unsupported { kid }` | `.unsupported(kid:)` | Not `AKP` / `ML-DSA-65` or `OKP` / `Ed25519` |
+| `key_unsupported` | `ErrKeyUnsupported` | `Unsupported { kid }` | `.unsupported(kid:)` | Not `AKP` / `ML-DSA-87` |
 | `key_invalid` | `ErrKeyInvalid` | `Invalid { kid, reason }`, `Seed` | `.invalid(kid:reason:)` | Public key not canonical base64url or the wrong length; a bad seed |
 | `duplicate_kid` | `ErrDuplicateKeyID` | `DuplicateKeyId(kid)` | `.duplicateKeyID(kid)` | Two keys in the set share a `kid` |
 
@@ -327,16 +365,16 @@ build would write. The generator uses fixed seeds and
 `now = 1800000000`. The top-level `keys` array lists each key's ID, algorithm,
 seed and public key.
 
-- `verify.json` has 120 cases. Each gives a token, a time, an issuer, a tenant
+- `verify.json` has 126 cases. Each gives a token, a time, an issuer, a tenant
   and a key set, together with either the claims it yields or the error class.
   They cover:
-  - valid [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) tokens and the legacy Ed25519 ones;
+  - valid [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) tokens;
   - rotation;
   - expiry and not-yet-valid, each at the skew boundary;
   - wrong `kid`;
   - tampered claims and tampered signatures;
-  - algorithm confusion (`none`, `HS256`, `EdDSA` against an ML-DSA key and the
-    reverse);
+  - algorithm confusion (`none`, `HS256`, `EdDSA`, `ES256` and `ML-DSA-65`
+    against an ML-DSA-87 key);
   - lifetimes over the cap;
   - issuer and tenant pins;
   - incomplete identities;
@@ -359,12 +397,13 @@ seed and public key.
     and a 16-character device ID.
 - `sign.json` has 18 cases: five valid claim sets with their exact signing
   input and a deterministic token, and thirteen that a signer must refuse.
-- `keysets.json` has 49 cases. Each gives a [JWK](https://www.rfc-editor.org/rfc/rfc7517) set document and either the
+- `keysets.json` has 51 cases. Each gives a [JWK](https://www.rfc-editor.org/rfc/rfc7517) set document and either the
   key IDs it yields, in order, or the error class. They cover both shapes, the
   empty set, ignored members, duplicate key IDs (byte for byte), every
   `set_malformed` cause, the parsing rules where a key set can break them
   (surrogates, depth, number range, a byte order mark, trailing data, keys
-  written as arrays), unsupported key types, and bad key material.
+  written as arrays), unsupported key types (Ed25519, P-256, X25519, ML-DSA-44
+  and ML-DSA-65 among them), and bad key material.
 
 The runners:
 

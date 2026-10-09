@@ -5,19 +5,17 @@ package proof
 
 import (
 	"bytes"
-	"crypto/ecdsa"
 	"crypto/mldsa"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"slices"
 	"time"
 )
 
-// MaxProofBytes bounds a proof before any parsing. An ML-DSA-65 proof, key
-// included, is about 8 KB.
+// MaxProofBytes bounds a proof before any parsing. An ML-DSA-87 proof, key
+// included, is about 11 KB.
 const MaxProofBytes = 16 * 1024
 
 // DefaultWindow is how far a proof's `iat` may be from the checker's clock,
@@ -166,7 +164,7 @@ func (c *Checker) Check(proof, token, certificateHash []byte, thumbprint string,
 	} else if alg != Algorithm(h.alg) {
 		return fmt.Errorf("%w: alg %q with a %s key", ErrUnsupported, h.alg, alg)
 	}
-	_, key, err := h.jwk.publicKey()
+	key, err := h.jwk.publicKey()
 	if err != nil {
 		return err
 	}
@@ -254,7 +252,7 @@ func decodeHeader(segment []byte) (header, error) {
 	}
 	var k JWK
 	if err := stringMembers(fields, map[string]*string{
-		"kty": &k.Kty, "alg": &k.Alg, "pub": &k.Pub, "crv": &k.Crv, "x": &k.X, "y": &k.Y,
+		"kty": &k.Kty, "alg": &k.Alg, "pub": &k.Pub,
 	}); err != nil {
 		return header{}, fmt.Errorf("jwk: %v", err)
 	}
@@ -313,24 +311,9 @@ func isNull(raw json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
-func verify(key any, signed, signature []byte) error {
-	switch key := key.(type) {
-	case *mldsa.PublicKey:
-		if mldsa.Verify(key, signed, signature, nil) != nil {
-			return ErrBadSignature
-		}
-	case *ecdsa.PublicKey:
-		if len(signature) != es256SignatureSize {
-			return ErrBadSignature
-		}
-		digest := sha256.Sum256(signed)
-		r := new(big.Int).SetBytes(signature[:es256SignatureSize/2])
-		s := new(big.Int).SetBytes(signature[es256SignatureSize/2:])
-		if !ecdsa.Verify(key, digest[:], r, s) {
-			return ErrBadSignature
-		}
-	default:
-		return ErrUnsupported
+func verify(key *mldsa.PublicKey, signed, signature []byte) error {
+	if mldsa.Verify(key, signed, signature, nil) != nil {
+		return ErrBadSignature
 	}
 	return nil
 }

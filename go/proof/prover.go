@@ -5,15 +5,11 @@ package proof
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/asn1"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"strconv"
 	"time"
 )
@@ -32,8 +28,8 @@ type Prover struct {
 	deterministic bool
 }
 
-// NewProver wraps a device key: an *mldsa.PrivateKey for ML-DSA-65 or an
-// *ecdsa.PrivateKey on P-256 for ES256.
+// NewProver wraps an ML-DSA-87 device key: an *mldsa.PrivateKey, or any
+// crypto.Signer whose public key is one, such as a hardware key.
 func NewProver(key crypto.Signer) (*Prover, error) {
 	jwk, err := jwkOf(key.Public())
 	if err != nil {
@@ -63,14 +59,8 @@ func NewProver(key crypto.Signer) (*Prover, error) {
 // GenerateProver makes a new software key for alg.
 func GenerateProver(alg Algorithm) (*Prover, error) {
 	switch alg {
-	case MLDSA65:
-		key, err := mldsa.GenerateKey(mldsa.MLDSA65())
-		if err != nil {
-			return nil, err
-		}
-		return NewProver(key)
-	case ES256:
-		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	case MLDSA87:
+		key, err := mldsa.GenerateKey(mldsa.MLDSA87())
 		if err != nil {
 			return nil, err
 		}
@@ -80,9 +70,8 @@ func GenerateProver(alg Algorithm) (*Prover, error) {
 	}
 }
 
-// Deterministic makes this prover sign deterministically (ML-DSA's
-// deterministic variant, RFC 6979 for ECDSA), for reproducible test vectors.
-// Either form verifies the same way.
+// Deterministic makes this prover sign with ML-DSA's deterministic variant,
+// for reproducible test vectors. Either form verifies the same way.
 func (p *Prover) Deterministic() *Prover {
 	copied := *p
 	copied.deterministic = true
@@ -134,42 +123,11 @@ func (p *Prover) sign(message []byte) ([]byte, error) {
 			return key.SignDeterministic(message, nil)
 		}
 		return key.Sign(nil, message, nil)
-	case *ecdsa.PrivateKey:
-		digest := sha256.Sum256(message)
-		random := rand.Reader
-		if p.deterministic {
-			random = nil
-		}
-		der, err := key.Sign(random, digest[:], crypto.SHA256)
-		if err != nil {
-			return nil, err
-		}
-		return fixedWidth(der)
 	default:
-		// Anything else that holds one of these keys, a hardware signer for
+		// Anything else that holds an ML-DSA-87 key, a hardware signer for
 		// instance, is asked as a crypto.Signer is.
-		if p.algorithm == MLDSA65 {
-			return p.signer.Sign(rand.Reader, message, &mldsa.Options{})
-		}
-		digest := sha256.Sum256(message)
-		der, err := p.signer.Sign(rand.Reader, digest[:], crypto.SHA256)
-		if err != nil {
-			return nil, err
-		}
-		return fixedWidth(der)
+		return p.signer.Sign(rand.Reader, message, &mldsa.Options{})
 	}
-}
-
-// fixedWidth converts an ASN.1 ECDSA signature to the r||s form JWS uses.
-func fixedWidth(der []byte) ([]byte, error) {
-	var parsed struct{ R, S *big.Int }
-	if rest, err := asn1.Unmarshal(der, &parsed); err != nil || len(rest) != 0 {
-		return nil, fmt.Errorf("proof: ECDSA signature is not ASN.1")
-	}
-	out := make([]byte, es256SignatureSize)
-	parsed.R.FillBytes(out[:es256SignatureSize/2])
-	parsed.S.FillBytes(out[es256SignatureSize/2:])
-	return out, nil
 }
 
 // NewNonce is a fresh 128-bit nonce, base64url.

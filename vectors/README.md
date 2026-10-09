@@ -21,9 +21,9 @@ Each file is a JSON object:
 
 - Bytes are lowercase hex, in fields ending `_hex`. Text is UTF-8 strings.
 - Keys are given as seeds or private-key bytes so that signing is reproducible
-  wherever the algorithm is deterministic ([ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) in deterministic mode,
-  Ed25519). Where a signature is randomised (ES256), the vector gives the
-  signature to verify, not one to reproduce.
+  wherever the algorithm is deterministic ([ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) in deterministic mode).
+  Where a signature is randomised, the vector gives the signature to verify,
+  not one to reproduce.
 - A case that must fail has `"error"` naming the failure class instead of an
   expected output. The classes are listed in each library's README, and every
   language maps its errors onto them.

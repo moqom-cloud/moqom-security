@@ -4,10 +4,10 @@ MOQOM's post-quantum security, as four libraries in Swift, Go and Rust:
 
 | Library | Does | Standards |
 | --- | --- | --- |
-| [`moqom-token`](docs/moqom-token.md) | Mints and verifies join tokens: tenant, room, grants, expiry, device binding (`cnf.jkt`), key rotation by key ID | Compact [JWS](https://www.rfc-editor.org/rfc/rfc7515); ML-DSA-65 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)), Ed25519 verify-only |
-| [`moqom-proof`](docs/moqom-proof.md) | A device's single-use proof that it holds the key its token names, bound to the token and to the peer's certificate | [RFC 9449](https://www.rfc-editor.org/rfc/rfc9449) shape, [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638) thumbprints; ML-DSA-65, ES256 accepted |
+| [`moqom-token`](docs/moqom-token.md) | Mints and verifies join tokens: tenant, room, grants, expiry, device binding (`cnf.jkt`), key rotation by key ID | Compact [JWS](https://www.rfc-editor.org/rfc/rfc7515); ML-DSA-87 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)) only |
+| [`moqom-proof`](docs/moqom-proof.md) | A device's single-use proof that it holds the key its token names, bound to the token and to the peer's certificate | [RFC 9449](https://www.rfc-editor.org/rfc/rfc9449) shape, [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638) thumbprints; ML-DSA-87 only |
 | [`moqom-sframe`](docs/moqom-sframe.md) | Seals and opens MoQ objects with their full track name and metadata bound into the tag | [RFC 9605](https://www.rfc-editor.org/rfc/rfc9605); binds the fields [draft-ietf-moq-secure-objects](https://datatracker.ietf.org/doc/draft-ietf-moq-secure-objects/) authenticates |
-| [`moqom-mls`](docs/moqom-mls.md) | Room key agreement that produces SFrame keys, and sealing an epoch's key to broadcast viewers | [RFC 9420](https://www.rfc-editor.org/rfc/rfc9420), `MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65` ([draft-ietf-mls-pq-ciphersuites](https://datatracker.ietf.org/doc/draft-ietf-mls-pq-ciphersuites/)) |
+| [`moqom-mls`](docs/moqom-mls.md) | Room key agreement that produces SFrame keys, and sealing an epoch's key to broadcast viewers | [RFC 9420](https://www.rfc-editor.org/rfc/rfc9420), `MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87` (0xF0AC, private use; ML-KEM-1024 and ML-DSA-87) |
 
 These are the libraries MOQOM's apps, relays and control plane run. Every
 language passes the same JSON test vectors in [`vectors/`](vectors/README.md),

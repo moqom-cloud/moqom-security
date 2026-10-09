@@ -12,10 +12,8 @@ public let proofType = "MOQT-POP"
 public struct Prover: Sendable {
     /// Where the private key is held. The enclave keys cannot be exported.
     public enum Key: Sendable {
-        case mlDSA65(MLDSA65.PrivateKey)
-        case secureEnclaveMLDSA65(SecureEnclave.MLDSA65.PrivateKey)
-        case es256(P256.Signing.PrivateKey)
-        case secureEnclaveES256(SecureEnclave.P256.Signing.PrivateKey)
+        case mlDSA87(MLDSA87.PrivateKey)
+        case secureEnclaveMLDSA87(SecureEnclave.MLDSA87.PrivateKey)
     }
 
     public let key: Key
@@ -31,27 +29,18 @@ public struct Prover: Sendable {
     public init(_ key: Key) {
         self.key = key
         let jwk = switch key {
-        case let .mlDSA65(key): ProofJWK(key.publicKey)
-        case let .secureEnclaveMLDSA65(key): ProofJWK(key.publicKey)
-        case let .es256(key): ProofJWK(key.publicKey)
-        case let .secureEnclaveES256(key): ProofJWK(key.publicKey)
+        case let .mlDSA87(key): ProofJWK(key.publicKey)
+        case let .secureEnclaveMLDSA87(key): ProofJWK(key.publicKey)
         }
         self.jwk = jwk
         // A key CryptoKit produced always has a canonical form.
         let canonical = (try? jwk.canonical()) ?? ""
         thumbprint = Data(SHA256.hash(data: Data(canonical.utf8))).base64URL
-        header = #"{"alg":"\#(Self.algorithm(of: key).rawValue)","typ":"\#(proofType)","jwk":\#(canonical)}"#
+        header = #"{"alg":"\#(ProofAlgorithm.mlDSA87.rawValue)","typ":"\#(proofType)","jwk":\#(canonical)}"#
     }
 
-    /// The algorithm this key signs with.
-    public var algorithm: ProofAlgorithm { Self.algorithm(of: key) }
-
-    private static func algorithm(of key: Key) -> ProofAlgorithm {
-        switch key {
-        case .mlDSA65, .secureEnclaveMLDSA65: .mlDSA65
-        case .es256, .secureEnclaveES256: .es256
-        }
-    }
+    /// The algorithm this key signs with: always ML-DSA-87.
+    public var algorithm: ProofAlgorithm { .mlDSA87 }
 
     /// Sign a proof that this key holds `token`, for the peer whose leaf
     /// certificate has SHA-256 `certificateHash`, using `nonce` as its
@@ -83,13 +72,10 @@ public struct Prover: Sendable {
         return Data("\(signed).\(signature.base64URL)".utf8)
     }
 
-    /// `rawRepresentation` for ECDSA: fixed-width `r || s`, as JWS requires.
     private func sign(_ message: Data) throws -> Data {
         switch key {
-        case let .mlDSA65(key): try key.signature(for: message)
-        case let .secureEnclaveMLDSA65(key): try key.signature(for: message)
-        case let .es256(key): try key.signature(for: message).rawRepresentation
-        case let .secureEnclaveES256(key): try key.signature(for: message).rawRepresentation
+        case let .mlDSA87(key): try key.signature(for: message)
+        case let .secureEnclaveMLDSA87(key): try key.signature(for: message)
         }
     }
 

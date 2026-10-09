@@ -11,8 +11,8 @@ use serde::de::{self, DeserializeOwned, MapAccess, SeqAccess, Visitor};
 
 use crate::claims::Header;
 use crate::{
-    CLOCK_SKEW, Claims, Error, MAX_LIFETIME, MAX_TOKEN_BYTES, PublicKey, TOKEN_TYPE,
-    valid_thumbprint,
+    CLOCK_SKEW, Claims, Error, MAX_LIFETIME, MAX_TOKEN_BYTES, PublicKey, SealKey, TOKEN_TYPE,
+    is_sealed, open, valid_thumbprint,
 };
 
 /// Checks tokens against a set of keys.
@@ -25,6 +25,9 @@ pub struct Verifier {
     keys: HashMap<String, PublicKey>,
     issuer: String,
     tenant: String,
+    pool: Option<String>,
+    seal: Vec<SealKey>,
+    accept_unsealed: bool,
 }
 
 impl Verifier {
@@ -36,7 +39,33 @@ impl Verifier {
             keys: keys.into_iter().map(|key| (key.id.clone(), key)).collect(),
             issuer: issuer.into(),
             tenant: String::new(),
+            pool: None,
+            seal: Vec::new(),
+            accept_unsealed: false,
         }
+    }
+
+    /// The same, opening sealed tokens with `keys` and refusing every token
+    /// that is not sealed ([`Error::Unsupported`]).
+    #[must_use]
+    pub fn with_seal_keys(mut self, keys: impl IntoIterator<Item = SealKey>) -> Self {
+        self.seal = keys.into_iter().collect();
+        self
+    }
+
+    /// The same, also accepting tokens that are signed and not sealed, for the
+    /// overlap while an issuer moves to sealing: at most [`MAX_LIFETIME`] once
+    /// it has.
+    #[must_use]
+    pub fn accepting_unsealed(mut self) -> Self {
+        self.accept_unsealed = true;
+        self
+    }
+
+    /// The keys sealed tokens are opened with.
+    #[must_use]
+    pub fn seal_keys(&self) -> &[SealKey] {
+        &self.seal
     }
 
     /// The same, refusing every token not issued for `tenant`
@@ -44,6 +73,15 @@ impl Verifier {
     #[must_use]
     pub fn for_tenant(mut self, tenant: impl Into<String>) -> Self {
         self.tenant = tenant.into();
+        self
+    }
+
+    /// The same, refusing every token whose `pool` is not `pool`
+    /// ([`Error::WrongPool`]). Empty is the shared fleet, which refuses every
+    /// token that names a pool. A verifier never given a pool does not check it.
+    #[must_use]
+    pub fn for_pool(mut self, pool: impl Into<String>) -> Self {
+        self.pool = Some(pool.into());
         self
     }
 
@@ -83,9 +121,24 @@ impl Verifier {
     /// attack surface. Then the claims, in this order: issuer, expiry,
     /// not-before, lifetime, completeness, thumbprint, tenant.
     ///
+    /// A verifier with seal keys opens a sealed token first, and verifies what
+    /// is inside exactly as it would the signed token.
+    ///
     /// # Errors
     /// The first check that failed.
     pub fn verify(&self, token: &[u8], now: SystemTime) -> Result<Claims, Error> {
+        if !self.seal.is_empty() {
+            if is_sealed(token) {
+                return self.verify_signed(open(token, &self.seal)?.as_bytes(), now);
+            }
+            if !self.accept_unsealed {
+                return Err(Error::Unsupported);
+            }
+        }
+        self.verify_signed(token, now)
+    }
+
+    fn verify_signed(&self, token: &[u8], now: SystemTime) -> Result<Claims, Error> {
         if token.is_empty() || token.len() > MAX_TOKEN_BYTES {
             return Err(Error::Malformed("token length is out of range"));
         }
@@ -162,6 +215,9 @@ impl Verifier {
         }
         if !self.tenant.is_empty() && claims.tenant != self.tenant {
             return Err(Error::WrongTenant);
+        }
+        if self.pool.as_ref().is_some_and(|pool| claims.pool != *pool) {
+            return Err(Error::WrongPool);
         }
         Ok(())
     }

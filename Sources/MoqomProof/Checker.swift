@@ -7,7 +7,7 @@ import Foundation
 /// Checks proofs and spends their nonces.
 public struct Checker: Sendable {
     /// A proof may not be larger than this, checked before any parsing. An
-    /// ML-DSA-65 proof, key included, is about 8 KB.
+    /// ML-DSA-87 proof, key included, is about 11 KB.
     public static let maximumProofBytes = 16 * 1024
 
     /// How far a proof's `iat` may be from the checker's clock, either way,
@@ -63,8 +63,7 @@ public struct Checker: Sendable {
                 typ = try object.string("typ") ?? ""
                 if let key = try object.object("jwk") {
                     jwk = try ProofJWK(
-                        kty: key.string("kty") ?? "", alg: key.string("alg"), pub: key.string("pub"),
-                        crv: key.string("crv"), x: key.string("x"), y: key.string("y")
+                        kty: key.string("kty") ?? "", alg: key.string("alg"), pub: key.string("pub")
                     )
                     privateMember = ProofJWK.privateMembers.first(where: key.has)
                 }
@@ -130,21 +129,10 @@ public struct Checker: Sendable {
         if let member = header.privateMember { throw .malformed("the key carries private member \(member)") }
         guard try jwk.algorithm() == alg else { throw .unsupported }
 
-        let verified: Bool
-        switch try jwk.decoded() {
-        case let .mlDSA65(raw):
-            guard let key = try? MLDSA65.PublicKey(rawRepresentation: raw) else {
-                throw .malformed("the key is not a valid public key")
-            }
-            verified = key.isValidSignature(signature, for: signed)
-        case let .es256(raw):
-            guard let key = try? P256.Signing.PublicKey(x963Representation: Data([0x04]) + raw) else {
-                throw .malformed("the key is not a valid public key")
-            }
-            verified = (try? P256.Signing.ECDSASignature(rawRepresentation: signature))
-                .map { key.isValidSignature($0, for: signed) } ?? false
+        guard let key = try? MLDSA87.PublicKey(rawRepresentation: try jwk.decoded()) else {
+            throw .malformed("the key is not a valid public key")
         }
-        guard verified else { throw .badSignature }
+        guard key.isValidSignature(signature, for: signed) else { throw .badSignature }
 
         // Without this, anybody could sign with a key of their own beside a
         // stolen token.

@@ -11,7 +11,7 @@ let strict: [SwiftSetting] = [
 
 let package = Package(
     name: "MoqomSecurity",
-    // CryptoKit's ML-DSA-65 and ML-KEM-768, including Secure Enclave ML-DSA,
+    // CryptoKit's ML-DSA-87 and ML-KEM-1024, including Secure Enclave ML-DSA,
     // arrive in the 26 release train.
     platforms: [.iOS(.v26), .macOS(.v26), .visionOS(.v26), .tvOS(.v26)],
     products: [

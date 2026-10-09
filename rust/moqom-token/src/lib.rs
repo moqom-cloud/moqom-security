@@ -4,11 +4,10 @@
 //! moqom-token: mint and verify the credential a MOQOM client joins a relay with.
 //!
 //! A token is a compact JWS (RFC 7515) over JSON claims, typed `MOQT`, signed
-//! with ML-DSA-65 (FIPS 204, JOSE `ML-DSA-65`, JWK `kty` `AKP`). Ed25519
-//! (`EdDSA`) keys verify and never sign, so tokens issued before the move to
-//! ML-DSA stay good until they expire. The key a token names by `kid` decides
-//! the algorithm it is verified with; the header's `alg` must agree and is never
-//! trusted on its own.
+//! with ML-DSA-87 (FIPS 204, JOSE `ML-DSA-87`, JWK `kty` `AKP`), the only
+//! algorithm a token is signed or verified with. The key a token names by `kid`
+//! decides the algorithm it is verified with; the header's `alg` must agree and
+//! is never trusted on its own.
 //!
 //! [`Signer::sign`] and [`Verifier::verify`] are the whole API. Verification
 //! checks the signature before it reads a claim, and returns [`Claims`] only from
@@ -97,10 +96,12 @@
 
 mod claims;
 mod keys;
+mod seal;
 mod verify;
 
 pub use claims::{Claims, Confirmation, Grant, valid_thumbprint};
 pub use keys::{Algorithm, KeyError, PublicKey, Signer, key_id};
+pub use seal::{SEAL_KEY_ID_BYTES, SEAL_VERSION, SealKey, is_sealed, open};
 pub use verify::Verifier;
 
 use std::time::Duration;
@@ -117,7 +118,7 @@ pub const MAX_LIFETIME: Duration = Duration::from_secs(15 * 60);
 pub const CLOCK_SKEW: Duration = Duration::from_secs(30);
 
 /// A token may not be larger than this, checked before anything is decoded. A
-/// real one is about five kilobytes, nearly all of it the ML-DSA-65 signature.
+/// real one is about seven kilobytes, nearly all of it the ML-DSA-87 signature.
 pub const MAX_TOKEN_BYTES: usize = 8192;
 
 /// Why a token was refused, to sign or to verify.
@@ -153,6 +154,9 @@ pub enum Error {
     /// For a tenant the verifier is not pinned to.
     #[error("token is for another tenant")]
     WrongTenant,
+    /// For a relay pool the verifier is not pinned to.
+    #[error("token is for another relay pool")]
+    WrongPool,
     /// Does not name a subject, a tenant and a device.
     #[error("token does not name a complete identity")]
     Incomplete,
@@ -175,6 +179,7 @@ impl Error {
             Self::Lifetime => "lifetime",
             Self::WrongIssuer => "wrong_issuer",
             Self::WrongTenant => "wrong_tenant",
+            Self::WrongPool => "wrong_pool",
             Self::Incomplete => "incomplete",
             Self::Thumbprint => "thumbprint",
         }

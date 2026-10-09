@@ -11,8 +11,8 @@
 // (`ath`), to the peer's leaf certificate by hash (`rel`), to a time (`iat`) and
 // to a nonce (`jti`) the checker accepts once.
 //
-// Two algorithms: ML-DSA-65 (JOSE "ML-DSA-65", JWK kty "AKP"), the default, and
-// ES256 on P-256, accepted while devices holding older keys roll over.
+// One algorithm: ML-DSA-87 (JOSE "ML-DSA-87", JWK kty "AKP"), so every proof is
+// post-quantum. ES256, ML-DSA-65 and every other algorithm are refused.
 //
 // [Prover] makes proofs; a [Checker] from [NewChecker] checks them against a
 // caller-supplied [NonceStore], such as [NewDefaultMemoryNonceStore]. Settings

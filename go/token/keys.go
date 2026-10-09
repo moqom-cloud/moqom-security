@@ -5,7 +5,6 @@ package token
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/sha256"
@@ -24,12 +23,8 @@ import (
 // one and no other.
 type Algorithm string
 
-const (
-	// MLDSA65 is ML-DSA-65, which every token is signed with.
-	MLDSA65 Algorithm = "ML-DSA-65"
-	// EdDSA is Ed25519, read only to verify tokens signed before ML-DSA.
-	EdDSA Algorithm = "EdDSA"
-)
+// MLDSA87 is ML-DSA-87, which every token is signed and verified with.
+const MLDSA87 Algorithm = "ML-DSA-87"
 
 // KeyID is the identifier a key gets when nobody names it: the first eight
 // bytes of the SHA-256 of the raw public key, base64url. A function of the key,
@@ -45,7 +40,6 @@ type PublicKey struct {
 	id        string
 	algorithm Algorithm
 	mldsa     *mldsa.PublicKey
-	ed25519   ed25519.PublicKey
 }
 
 // Failures loading a key, a key set or a seed. Each is one of the error
@@ -56,7 +50,7 @@ var (
 	// null, of the wrong type or named twice, or a key with no `kty` or no
 	// `kid`.
 	ErrKeySetMalformed = errors.New("not a JWK set")
-	// ErrKeyUnsupported is a key that is not ML-DSA-65 or Ed25519.
+	// ErrKeyUnsupported is a key that is not ML-DSA-87.
 	ErrKeyUnsupported = errors.New("key type is not supported")
 	// ErrKeyInvalid is key material that is not base64url or not the
 	// algorithm's length, or a seed that is not 32 bytes.
@@ -67,27 +61,20 @@ var (
 	ErrDuplicateKeyID = errors.New("key ID appears twice in the set")
 )
 
-// NewPublicKey reads a raw public key: 1,952 bytes for ML-DSA-65, 32 for
-// Ed25519. An empty id is KeyID of the key.
+// NewPublicKey reads a raw ML-DSA-87 public key, 2,592 bytes. An empty id is
+// KeyID of the key.
 func NewPublicKey(algorithm Algorithm, id string, raw []byte) (PublicKey, error) {
 	if id == "" {
 		id = KeyID(raw)
 	}
-	switch algorithm {
-	case MLDSA65:
-		public, err := mldsa.NewPublicKey(mldsa.MLDSA65(), raw)
-		if err != nil {
-			return PublicKey{}, fmt.Errorf("%w: key %s: %v", ErrKeyInvalid, id, err)
-		}
-		return PublicKey{id: id, algorithm: MLDSA65, mldsa: public}, nil
-	case EdDSA:
-		if len(raw) != ed25519.PublicKeySize {
-			return PublicKey{}, fmt.Errorf("%w: key %s: an Ed25519 public key is %d bytes, got %d",
-				ErrKeyInvalid, id, ed25519.PublicKeySize, len(raw))
-		}
-		return PublicKey{id: id, algorithm: EdDSA, ed25519: append(ed25519.PublicKey(nil), raw...)}, nil
+	if algorithm != MLDSA87 {
+		return PublicKey{}, fmt.Errorf("%w: key %s: algorithm %q", ErrKeyUnsupported, id, algorithm)
 	}
-	return PublicKey{}, fmt.Errorf("%w: key %s: algorithm %q", ErrKeyUnsupported, id, algorithm)
+	public, err := mldsa.NewPublicKey(mldsa.MLDSA87(), raw)
+	if err != nil {
+		return PublicKey{}, fmt.Errorf("%w: key %s: %v", ErrKeyInvalid, id, err)
+	}
+	return PublicKey{id: id, algorithm: MLDSA87, mldsa: public}, nil
 }
 
 // ID is the `kid` naming the key.
@@ -98,55 +85,43 @@ func (k PublicKey) Algorithm() Algorithm { return k.algorithm }
 
 // Bytes is the raw public key.
 func (k PublicKey) Bytes() []byte {
-	if k.mldsa != nil {
-		return k.mldsa.Bytes()
+	if k.mldsa == nil {
+		return nil
 	}
-	return append([]byte(nil), k.ed25519...)
+	return k.mldsa.Bytes()
 }
 
 // Verify reports whether signature is this key's over message, by this key's
 // own algorithm.
 func (k PublicKey) Verify(message, signature []byte) bool {
-	switch {
-	case k.mldsa != nil:
-		return mldsa.Verify(k.mldsa, message, signature, nil) == nil
-	case k.ed25519 != nil:
-		return len(signature) == ed25519.SignatureSize && ed25519.Verify(k.ed25519, message, signature)
-	}
-	return false
+	return k.mldsa != nil && mldsa.Verify(k.mldsa, message, signature, nil) == nil
 }
 
 type jwk struct {
 	Kty string `json:"kty"`
 	Alg string `json:"alg,omitempty"`
-	Crv string `json:"crv,omitempty"`
 	Kid string `json:"kid"`
-	X   string `json:"x,omitempty"`
 	Pub string `json:"pub,omitempty"`
 }
 
-// JWK renders the key as a JWK: AKP for ML-DSA-65, per the JOSE ML-DSA draft,
-// or OKP for Ed25519.
+// JWK renders the key as a JWK: AKP with alg ML-DSA-87, per the JOSE ML-DSA
+// draft.
 func (k PublicKey) JWK() ([]byte, error) {
-	encoded := base64.RawURLEncoding.EncodeToString(k.Bytes())
-	switch k.algorithm {
-	case MLDSA65:
-		return json.Marshal(jwk{Kty: "AKP", Alg: string(MLDSA65), Kid: k.id, Pub: encoded})
-	case EdDSA:
-		return json.Marshal(jwk{Kty: "OKP", Crv: "Ed25519", Kid: k.id, X: encoded})
+	if k.mldsa == nil {
+		return nil, errors.New("token: the zero PublicKey has no JWK")
 	}
-	return nil, errors.New("token: the zero PublicKey has no JWK")
+	return json.Marshal(jwk{Kty: "AKP", Alg: string(MLDSA87), Kid: k.id, Pub: base64.RawURLEncoding.EncodeToString(k.Bytes())})
 }
 
 // ParseJWKSet reads a JWK set, as a bare array or wrapped in {"keys": [...]}.
 //
 // The whole document is read first (ErrKeySetMalformed), then each key in
-// order: it must be AKP/ML-DSA-65 or OKP/Ed25519 (ErrKeyUnsupported), its
-// public key must be canonical base64url of the right length (ErrKeyInvalid),
-// and its `kid` must not repeat one before it (ErrDuplicateKeyID). A key that
-// fails is refused rather than skipped, because a set that silently lost a key
-// verifies fewer tokens than its author thinks. Member names are exact, and
-// members a key does not need (`use`, `key_ops`) are ignored.
+// order: it must be AKP/ML-DSA-87 (ErrKeyUnsupported), its public key must be
+// canonical base64url of the right length (ErrKeyInvalid), and its `kid` must
+// not repeat one before it (ErrDuplicateKeyID). A key that fails is refused
+// rather than skipped, because a set that silently lost a key verifies fewer
+// tokens than its author thinks. Member names are exact, and members a key
+// does not need (`use`, `key_ops`, `crv`, `x`) are ignored.
 func ParseJWKSet(document []byte) ([]PublicKey, error) {
 	jwks, err := decodeJWKSet(document)
 	if err != nil {
@@ -155,22 +130,15 @@ func ParseJWKSet(document []byte) ([]PublicKey, error) {
 	keys := make([]PublicKey, 0, len(jwks))
 	seen := make(map[string]bool, len(jwks))
 	for _, key := range jwks {
-		var algorithm Algorithm
-		var field, name string
-		switch {
-		case key.Kty == "AKP" && key.Alg == string(MLDSA65):
-			algorithm, field, name = MLDSA65, key.Pub, "pub"
-		case key.Kty == "OKP" && key.Crv == "Ed25519":
-			algorithm, field, name = EdDSA, key.X, "x"
-		default:
-			return nil, fmt.Errorf("%w: key %s: only AKP/ML-DSA-65 and OKP/Ed25519 are supported, got %s/%s%s",
-				ErrKeyUnsupported, key.Kid, key.Kty, key.Alg, key.Crv)
+		if key.Kty != "AKP" || key.Alg != string(MLDSA87) {
+			return nil, fmt.Errorf("%w: key %s: only AKP/ML-DSA-87 is supported, got %s/%s",
+				ErrKeyUnsupported, key.Kid, key.Kty, key.Alg)
 		}
-		raw, err := decodeBase64URL(field)
+		raw, err := decodeBase64URL(key.Pub)
 		if err != nil {
-			return nil, fmt.Errorf("%w: key %s: %s is not base64url", ErrKeyInvalid, key.Kid, name)
+			return nil, fmt.Errorf("%w: key %s: pub is not base64url", ErrKeyInvalid, key.Kid)
 		}
-		public, err := NewPublicKey(algorithm, key.Kid, raw)
+		public, err := NewPublicKey(MLDSA87, key.Kid, raw)
 		if err != nil {
 			return nil, err
 		}
@@ -213,7 +181,7 @@ func decodeJWKSet(document []byte) ([]jwk, error) {
 		}
 		key := &jwks[i]
 		if err := fieldsInto(fields, map[string]any{
-			"kty": &key.Kty, "alg": &key.Alg, "crv": &key.Crv, "kid": &key.Kid, "x": &key.X, "pub": &key.Pub,
+			"kty": &key.Kty, "alg": &key.Alg, "kid": &key.Kid, "pub": &key.Pub,
 		}, false); err != nil {
 			return nil, fmt.Errorf("key %d: %w", i, err)
 		}
@@ -237,25 +205,25 @@ func decodeBase64URL(text string) ([]byte, error) {
 	return base64.RawURLEncoding.Strict().DecodeString(text)
 }
 
-// Signer mints tokens with an ML-DSA-65 key.
+// Signer mints tokens with an ML-DSA-87 key.
 type Signer struct {
 	private *mldsa.PrivateKey
 	public  PublicKey
 }
 
-// NewSigner loads an ML-DSA-65 key from its 32-byte FIPS 204 seed, named by
+// NewSigner loads an ML-DSA-87 key from its 32-byte FIPS 204 seed, named by
 // KeyID of its public half.
 func NewSigner(seed []byte) (*Signer, error) {
-	private, err := mldsa.NewPrivateKey(mldsa.MLDSA65(), seed)
+	private, err := mldsa.NewPrivateKey(mldsa.MLDSA87(), seed)
 	if err != nil {
-		return nil, fmt.Errorf("%w: ML-DSA-65 seed: %v", ErrKeyInvalid, err)
+		return nil, fmt.Errorf("%w: ML-DSA-87 seed: %v", ErrKeyInvalid, err)
 	}
 	return signerFor(private), nil
 }
 
-// GenerateSigner makes a new random ML-DSA-65 key.
+// GenerateSigner makes a new random ML-DSA-87 key.
 func GenerateSigner() (*Signer, error) {
-	private, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	private, err := mldsa.GenerateKey(mldsa.MLDSA87())
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +235,7 @@ func signerFor(private *mldsa.PrivateKey) *Signer {
 	raw := public.Bytes()
 	return &Signer{
 		private: private,
-		public:  PublicKey{id: KeyID(raw), algorithm: MLDSA65, mldsa: public},
+		public:  PublicKey{id: KeyID(raw), algorithm: MLDSA87, mldsa: public},
 	}
 }
 
@@ -309,7 +277,7 @@ func (s *Signer) signDeterministic(claims Claims) (string, error) {
 }
 
 func (s *Signer) sign(claims Claims, signature func([]byte) ([]byte, error)) (string, error) {
-	input, err := signingInput(MLDSA65, s.public.id, claims)
+	input, err := signingInput(MLDSA87, s.public.id, claims)
 	if err != nil {
 		return "", err
 	}

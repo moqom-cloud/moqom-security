@@ -22,6 +22,7 @@ private struct VerifyCase: Decodable {
     let now: Int64
     let issuer: String
     let tenant: String?
+    let pool: String?
     let keys: [String]
     let error: String?
 }
@@ -73,19 +74,11 @@ private func read<Case: Decodable>(_ name: String) throws -> (File<Case>, Data, 
     for key in file.keys {
         let publicBytes = hex(key.public_hex)
         if key.kid_derived { #expect(PublicKey.derivedID(for: publicBytes) == key.kid) }
-        switch key.alg {
-        case "ML-DSA-65":
-            let signer = try Signer(seed: hex(key.seed_hex), keyID: key.kid)
-            #expect(signer.publicKey.rawRepresentation == publicBytes, "\(key.kid): seed and public key")
-            signers[key.kid] = signer
-            keys[key.kid] = try PublicKey(id: key.kid, algorithm: .mlDSA65, rawRepresentation: publicBytes)
-        case "EdDSA":
-            let derived = try Curve25519.Signing.PrivateKey(rawRepresentation: hex(key.seed_hex)).publicKey
-            #expect(derived.rawRepresentation == publicBytes)
-            keys[key.kid] = try PublicKey(id: key.kid, algorithm: .ed25519, rawRepresentation: publicBytes)
-        default:
-            Issue.record("algorithm \(key.alg)")
-        }
+        #expect(key.alg == Algorithm.mlDSA87.rawValue, "\(key.kid): algorithm \(key.alg)")
+        let signer = try Signer(seed: hex(key.seed_hex), keyID: key.kid)
+        #expect(signer.publicKey.rawRepresentation == publicBytes, "\(key.kid): seed and public key")
+        signers[key.kid] = signer
+        keys[key.kid] = try PublicKey(id: key.kid, algorithm: .mlDSA87, rawRepresentation: publicBytes)
     }
     return (file, raw, keys, signers)
 }
@@ -98,7 +91,7 @@ struct VectorTests {
         let expected = try claims(of: raw)
         #expect(file.cases.count > 40)
         for c in file.cases {
-            let verifier = Verifier(issuer: c.issuer, tenant: c.tenant ?? "", keys: c.keys.compactMap { keys[$0] })
+            let verifier = Verifier(issuer: c.issuer, tenant: c.tenant ?? "", pool: c.pool, keys: c.keys.compactMap { keys[$0] })
             let now = Date(timeIntervalSince1970: TimeInterval(c.now))
             switch Result(catching: { () throws(TokenError) in try verifier.verify(c.token, now: now) }) {
             case let .success(verified):
@@ -139,12 +132,13 @@ struct VectorTests {
     @Test("a JWK set round-trips, and keys of the wrong kind are refused")
     func jwks() throws {
         let signer = try Signer(seed: Data(repeating: 1, count: 32))
-        let legacy = try PublicKey(id: "old", algorithm: .ed25519, rawRepresentation: Data(repeating: 7, count: 32))
-        let document = Data("{\"keys\":[\(signer.publicKey.jwk),\(legacy.jwk)]}".utf8)
-        #expect(try PublicKey.parseSet(document) == [signer.publicKey, legacy])
+        let next = try Signer(seed: Data(repeating: 2, count: 32), keyID: "next")
+        let document = Data("{\"keys\":[\(signer.publicKey.jwk),\(next.publicKey.jwk)]}".utf8)
+        #expect(try PublicKey.parseSet(document) == [signer.publicKey, next.publicKey])
         for refused in [
             #"[{"kty":"AKP","alg":"ML-DSA-44","kid":"k","pub":"AAAA"}]"#,
             #"[{"kty":"AKP","alg":"ML-DSA-65","kid":"k","pub":"AAAA"}]"#,
+            #"[{"kty":"OKP","crv":"Ed25519","kid":"k","x":"AAAA"}]"#,
             #"[{"kty":"OKP","crv":"P-256","kid":"k","x":"AAAA"}]"#,
             #"["not an object"]"#,
         ] {
@@ -155,16 +149,13 @@ struct VectorTests {
     @Test("a raw key of the wrong length is refused, as in a set")
     func rawKeyLength() throws {
         let mlDSA = try Signer(seed: Data(repeating: 1, count: 32)).publicKey.rawRepresentation
-        #expect(throws: Never.self) { try PublicKey(id: "k", algorithm: .mlDSA65, rawRepresentation: mlDSA) }
-        #expect(throws: Never.self) { try PublicKey(id: "k", algorithm: .ed25519, rawRepresentation: Data(repeating: 7, count: 32)) }
-        let refused: [(Algorithm, Data)] = [
-            (.mlDSA65, mlDSA.dropLast()), (.mlDSA65, mlDSA + [0]), (.mlDSA65, Data(repeating: 7, count: 32)), (.mlDSA65, Data()),
-            (.ed25519, Data(repeating: 7, count: 31)), (.ed25519, Data(repeating: 7, count: 33)), (.ed25519, mlDSA), (.ed25519, Data()),
-        ]
-        for (algorithm, raw) in refused {
+        #expect(mlDSA.count == 2592)
+        #expect(throws: Never.self) { try PublicKey(id: "k", algorithm: .mlDSA87, rawRepresentation: mlDSA) }
+        let refused: [Data] = [mlDSA.dropLast(), mlDSA + [0], mlDSA.prefix(1952), Data(repeating: 7, count: 32), Data()]
+        for raw in refused {
             do {
-                _ = try PublicKey(id: "k", algorithm: algorithm, rawRepresentation: raw)
-                Issue.record("\(algorithm) key of \(raw.count) bytes accepted")
+                _ = try PublicKey(id: "k", algorithm: .mlDSA87, rawRepresentation: raw)
+                Issue.record("ML-DSA-87 key of \(raw.count) bytes accepted")
             } catch {
                 guard case .invalid(kid: "k", reason: _) = error else {
                     Issue.record("\(error)")
@@ -174,10 +165,11 @@ struct VectorTests {
             }
         }
         do {
-            _ = try PublicKey(algorithm: .ed25519, rawRepresentation: Data(repeating: 7, count: 31))
+            _ = try PublicKey(algorithm: .mlDSA87, rawRepresentation: Data(repeating: 7, count: 31))
+            Issue.record("a 31-byte key accepted")
         } catch {
             #expect(error == .invalid(kid: PublicKey.derivedID(for: Data(repeating: 7, count: 31)),
-                                      reason: "a EdDSA public key is 32 bytes"))
+                                      reason: "a ML-DSA-87 public key is 2592 bytes"))
         }
     }
 
@@ -214,4 +206,85 @@ private struct KeySetCase: Decodable {
     let document: String
     let kids: [String]?
     let error: String?
+}
+
+private struct SealKeySpec: Decodable {
+    let kid: String
+    let id_hex: String
+    let secret_hex: String
+}
+
+private struct SealCase: Decodable {
+    let name: String
+    let kid: String?
+    let nonce_hex: String?
+    let token: String?
+    let sealed: String?
+    let keys: [String]
+    let accept_unsealed: Bool?
+    let now: Int64?
+    let error: String?
+}
+
+private struct SealFile: Decodable {
+    let keys: [Key]
+    let seal_keys: [SealKeySpec]
+    let cases: [SealCase]
+}
+
+@Suite("moqom-token seal vectors")
+struct SealVectorTests {
+    @Test("every seal vector")
+    func seal() throws {
+        let (_, raw, signing, _) = try read("seal.json") as (File<SealCase>, Data, [String: PublicKey], [String: Signer])
+        let file = try JSONDecoder().decode(SealFile.self, from: raw)
+        let expected = try claims(of: raw)
+        var seals: [String: SealKey] = [:]
+        for spec in file.seal_keys {
+            seals[spec.kid] = try SealKey(id: hex(spec.id_hex), secret: hex(spec.secret_hex))
+        }
+        #expect(file.cases.count > 15)
+        for c in file.cases {
+            let token = c.token ?? ""
+            if let kid = c.kid {
+                let nonce = try AES.GCM.Nonce(data: hex(try #require(c.nonce_hex)))
+                #expect(try #require(seals[kid]).seal(token, nonce: nonce) == c.sealed, "\(c.name): sealing")
+            }
+            let held = c.keys.compactMap { seals[$0] }
+            let presented = Data((c.sealed ?? token).utf8)
+            guard let now = c.now else {
+                switch Result(catching: { () throws(TokenError) in try SealKey.open(presented, keys: held) }) {
+                case let .success(opened):
+                    #expect(c.error == nil && opened == token, "\(c.name): opened, want \(c.error ?? "the token")")
+                case let .failure(error):
+                    #expect(error.errorClass == c.error, "\(c.name): \(error)")
+                }
+                continue
+            }
+            let verifier = Verifier(keys: Array(signing.values), sealKeys: held, acceptsUnsealed: c.accept_unsealed ?? false)
+            let at = Date(timeIntervalSince1970: TimeInterval(now))
+            switch Result(catching: { () throws(TokenError) in try verifier.verify(presented, now: at) }) {
+            case let .success(verified):
+                #expect(c.error == nil, "\(c.name): accepted, want \(c.error ?? "")")
+                #expect(verified == (try Claims(json: try #require(expected[c.name]))), "\(c.name)")
+            case let .failure(error):
+                #expect(error.errorClass == c.error, "\(c.name): \(error)")
+            }
+        }
+    }
+
+    @Test("a seal key round-trips through its JWK and never describes its secret")
+    func jwk() throws {
+        let key = SealKey.generate()
+        let read = try SealKey.parseSet(Data("{\"keys\":[\(key.jwk)]}".utf8))
+        #expect(read.map(\.id) == [key.id] && read[0].secret == key.secret)
+        #expect(!key.description.contains(key.secret.base64URL))
+        #expect(throws: PublicKey.SetError.self) { try SealKey.parseSet(Data("[\(key.jwk),\(key.jwk)]".utf8)) }
+        let signer = try Signer(seed: Data(repeating: 1, count: 32))
+        let claims = try Claims(json: Data(#"{"iss":"i","sub":"ada","aud":"acme","jti":"j","iat":1800000000,"exp":1800000600,"cnf":{"jkt":"MpXqvQAmv7Y3Kk9dHnJpLwRtUvXyZaBcDeFgHiJkLmM"},"moqt":{"pub":3,"cap":0}}"#.utf8))
+        let signed = try signer.sign(claims)
+        let first = try key.seal(signed), second = try key.seal(signed)
+        #expect(first != second && SealKey.isSealed(Data(first.utf8)))
+        #expect(try SealKey.open(Data(first.utf8), keys: [key]) == signed)
+    }
 }

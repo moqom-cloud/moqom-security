@@ -8,13 +8,12 @@ package token
 //	MOQOM_WRITE_VECTORS=1 go test ./token -run TestVectors
 //
 // and regenerating is a no-op unless the format changes, because every key is
-// a seed and every signature is deterministic (FIPS 204 deterministic ML-DSA,
-// and Ed25519). Without the variable the test checks that the committed files
+// a seed and every signature is deterministic (FIPS 204 deterministic
+// ML-DSA-87). Without the variable the test checks that the committed files
 // are exactly what this build would write, then runs every case.
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -43,11 +42,14 @@ type vectorKey struct {
 }
 
 type verifyCase struct {
-	Name   string          `json:"name"`
-	Token  string          `json:"token"`
-	Now    int64           `json:"now"`
-	Issuer string          `json:"issuer"`
-	Tenant string          `json:"tenant,omitempty"`
+	Name   string `json:"name"`
+	Token  string `json:"token"`
+	Now    int64  `json:"now"`
+	Issuer string `json:"issuer"`
+	Tenant string `json:"tenant,omitempty"`
+	// Pool, when present, pins the verifier to that relay pool, "" being the
+	// shared fleet. Absent does not check the pool.
+	Pool   *string         `json:"pool,omitempty"`
 	Keys   []string        `json:"keys"`
 	Claims json.RawMessage `json:"claims,omitempty"`
 	Error  string          `json:"error,omitempty"`
@@ -73,7 +75,6 @@ type vectorFile[C any] struct {
 type vectorKeys struct {
 	specs   []vectorKey
 	signers map[string]*Signer
-	legacy  ed25519.PrivateKey
 	public  map[string]PublicKey
 }
 
@@ -100,25 +101,14 @@ func buildKeys(t *testing.T) vectorKeys {
 		keys.signers[signer.ID()] = signer
 		keys.public[signer.ID()] = signer.PublicKey()
 		keys.specs = append(keys.specs, vectorKey{
-			Kid: signer.ID(), Alg: string(MLDSA65), SeedHex: hex.EncodeToString(seed(spec.fill)),
+			Kid: signer.ID(), Alg: string(MLDSA87), SeedHex: hex.EncodeToString(seed(spec.fill)),
 			PublicHex: hex.EncodeToString(signer.PublicKey().Bytes()), KidDerived: spec.kid == "",
 		})
 	}
-	keys.legacy = ed25519.NewKeyFromSeed(seed(0x04))
-	legacy, err := NewPublicKey(EdDSA, "", keys.legacy.Public().(ed25519.PublicKey))
-	if err != nil {
-		t.Fatal(err)
-	}
-	keys.public[legacy.ID()] = legacy
-	keys.specs = append(keys.specs, vectorKey{
-		Kid: legacy.ID(), Alg: string(EdDSA), SeedHex: hex.EncodeToString(seed(0x04)),
-		PublicHex: hex.EncodeToString(legacy.Bytes()), KidDerived: true,
-	})
 	return keys
 }
 
-func (k vectorKeys) current() string  { return k.specs[0].Kid }
-func (k vectorKeys) legacyID() string { return k.specs[3].Kid }
+func (k vectorKeys) current() string { return k.specs[0].Kid }
 
 func baseClaims() Claims {
 	return Claims{
@@ -138,15 +128,9 @@ func rawSegment(text string) string { return base64.RawURLEncoding.EncodeToStrin
 // signRaw signs arbitrary segments, for the cases no Signer would produce.
 func (k vectorKeys) signRaw(kid string, headerSegment, claimsSegment string) string {
 	input := headerSegment + "." + claimsSegment
-	var signature []byte
-	if kid == k.legacyID() {
-		signature = ed25519.Sign(k.legacy, []byte(input))
-	} else {
-		signed, err := k.signers[kid].private.SignDeterministic([]byte(input), nil)
-		if err != nil {
-			panic(err)
-		}
-		signature = signed
+	signature, err := k.signers[kid].private.SignDeterministic([]byte(input), nil)
+	if err != nil {
+		panic(err)
 	}
 	return input + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
@@ -184,9 +168,9 @@ func canonicalClaims(t *testing.T, claims Claims) json.RawMessage {
 
 func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 	t.Helper()
-	current, legacy := keys.current(), keys.legacyID()
-	set := []string{current, "pq-next", legacy}
-	mldsaHeader := headerFor(string(MLDSA65), Type, current)
+	current := keys.current()
+	set := []string{current, "pq-next"}
+	mldsaHeader := headerFor(string(MLDSA87), Type, current)
 
 	mint := func(kid string, claims Claims) string {
 		signed, err := keys.signers[kid].signDeterministic(claims)
@@ -211,7 +195,7 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 	parts := strings.Split(plain, ".")
 
 	full := baseClaims()
-	full.ID, full.Via, full.E2EE = "vector-full", "bea", "required"
+	full.ID, full.Via = "vector-full", "bea"
 	full.Grant = Grant{Room: "room-42", Publish: 15, Capabilities: 0x101, Owner: true, Backstage: true, AgeVerified: true}
 
 	link := baseClaims()
@@ -223,10 +207,6 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 	rotated := baseClaims()
 	rotated.ID = "vector-rotated"
 
-	legacyClaims := baseClaims()
-	legacyClaims.ID = "vector-legacy"
-	legacyToken := keys.signRaw(legacy, headerFor(string(EdDSA), Type, legacy), rawSegment(claimsJSON(legacyClaims, nil)))
-
 	noIssued := baseClaims()
 	noIssued.IssuedAt = 0
 	ahead := baseClaims()
@@ -235,12 +215,11 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 	maximum.Expires = vectorNow + 900
 
 	cases := []verifyCase{
-		valid("ml-dsa-65", plain, baseClaims()),
-		valid("ml-dsa-65 every claim", mint(current, full), full),
+		valid("ml-dsa-87", plain, baseClaims()),
+		valid("ml-dsa-87 every claim", mint(current, full), full),
 		valid("relay link grant", mint(current, link), link),
 		valid("unicode and escapes", mint(current, awkward), awkward),
 		valid("the incoming key during a rotation", mint("pq-next", rotated), rotated),
-		valid("ed25519 legacy key", legacyToken, legacyClaims),
 		valid("unknown top-level claim is ignored", edit(baseClaims(), func(m map[string]any) {
 			m["something_added_later"] = map[string]any{"nested": true}
 		}), baseClaims()),
@@ -271,7 +250,7 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 	tenant := refused("another tenant", plain, "wrong_tenant")
 	tenant.Tenant = "globex"
 	rotatedAway := refused("kid rotated out of the set", mint("pq-next", rotated), "unknown_key")
-	rotatedAway.Keys = []string{current, legacy}
+	rotatedAway.Keys = []string{current}
 	cases = append(cases, expired, early, foreign, tenant, rotatedAway)
 
 	// Compared byte for byte: canonically equivalent is not equal.
@@ -285,6 +264,23 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 	sameTenant := valid("tenant and issuer with the same bytes", composedToken, composed)
 	sameTenant.Issuer, sameTenant.Tenant = composed.Issuer, composed.Tenant
 	cases = append(cases, decomposedTenant, decomposedIssuer, sameTenant)
+
+	pin := func(pool string) *string { return &pool }
+	pooledClaims := baseClaims()
+	pooledClaims.Pool = "acme-prod"
+	pooledToken := mint(current, pooledClaims)
+	ownPool := valid("a pool relay admits its own pool's token", pooledToken, pooledClaims)
+	ownPool.Pool = pin("acme-prod")
+	unpinned := valid("a verifier with no pool reads the pool and admits it", pooledToken, pooledClaims)
+	shared := refused("a shared relay refuses a pooled token", pooledToken, "wrong_pool")
+	shared.Pool = pin("")
+	otherPool := refused("a pool relay refuses another pool's token", pooledToken, "wrong_pool")
+	otherPool.Pool = pin("globex-prod")
+	unpooled := refused("a pool relay refuses a token naming no pool", plain, "wrong_pool")
+	unpooled.Pool = pin("acme-prod")
+	sharedPlain := valid("a shared relay admits a token naming no pool", plain, baseClaims())
+	sharedPlain.Pool = pin("")
+	cases = append(cases, ownPool, unpinned, shared, otherPool, unpooled, sharedPlain)
 
 	tamperedClaims := baseClaims()
 	tamperedClaims.Grant.Owner = true
@@ -317,9 +313,9 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 		duplicate("duplicate member in the grant", `"moqt":{`, `"moqt":{"room":"room-1",`),
 		duplicate("duplicate member in an unknown claim", `{"aud":`, `{"later":{"a":1,"a":2},"aud":`),
 		duplicate("duplicate member in an object inside an array", `{"aud":`, `{"later":[{"a":1},{"b":[{"c":1,"c":1}]}],"aud":`),
-		duplicateHeader("duplicate header parameter", `{"alg":"ML-DSA-65","kid":"`+current+`","kid":"`+current+`","typ":"MOQT"}`),
-		duplicateHeader("duplicate header alg with another value", `{"alg":"EdDSA","alg":"ML-DSA-65","kid":"`+current+`","typ":"MOQT"}`),
-		duplicateHeader("duplicate header parameter spelled with an escape", `{"alg":"ML-DSA-65","k\u0069d":"`+current+`","kid":"`+current+`","typ":"MOQT"}`),
+		duplicateHeader("duplicate header parameter", `{"alg":"ML-DSA-87","kid":"`+current+`","kid":"`+current+`","typ":"MOQT"}`),
+		duplicateHeader("duplicate header alg with another value", `{"alg":"ML-DSA-87","alg":"ML-DSA-87","kid":"`+current+`","typ":"MOQT"}`),
+		duplicateHeader("duplicate header parameter spelled with an escape", `{"alg":"ML-DSA-87","k\u0069d":"`+current+`","kid":"`+current+`","typ":"MOQT"}`),
 		valid("member names that differ only in case or sit in sibling objects",
 			withClaims("siblings", `{"aud":`, `{"later":[{"a":1},{"a":1}],"Later":{"a":{"a":1}},"aud":`), baseClaims()),
 	)
@@ -371,11 +367,11 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 		malformed("claims with a byte order mark", `{"aud":`, "\uFEFF{\"aud\":"),
 		malformed("claims with data after the object", `"sub":"ada"}`, `"sub":"ada"} {}`),
 		refused("header is null", keys.signRaw(current, rawSegment(`null`), parts[1]), "malformed"),
-		refused("header is an array", keys.signRaw(current, header(`["ML-DSA-65","MOQT","KID"]`), parts[1]), "malformed"),
-		refused("header kid is null", keys.signRaw(current, header(`{"alg":"ML-DSA-65","typ":"MOQT","kid":null}`), parts[1]), "malformed"),
-		refused("header alg is a number", keys.signRaw(current, header(`{"alg":65,"typ":"MOQT","kid":"KID"}`), parts[1]), "malformed"),
-		refused("header with an unpaired surrogate escape", keys.signRaw(current, header(`{"alg":"ML-DSA-65","typ":"MOQT\udc00","kid":"KID"}`), parts[1]), "malformed"),
-		refused("header that is not utf-8", keys.signRaw(current, header("{\"alg\":\"ML-DSA-65\",\"typ\":\"MOQT\xff\",\"kid\":\"KID\"}"), parts[1]), "malformed"),
+		refused("header is an array", keys.signRaw(current, header(`["ML-DSA-87","MOQT","KID"]`), parts[1]), "malformed"),
+		refused("header kid is null", keys.signRaw(current, header(`{"alg":"ML-DSA-87","typ":"MOQT","kid":null}`), parts[1]), "malformed"),
+		refused("header alg is a number", keys.signRaw(current, header(`{"alg":87,"typ":"MOQT","kid":"KID"}`), parts[1]), "malformed"),
+		refused("header with an unpaired surrogate escape", keys.signRaw(current, header(`{"alg":"ML-DSA-87","typ":"MOQT\udc00","kid":"KID"}`), parts[1]), "malformed"),
+		refused("header that is not utf-8", keys.signRaw(current, header("{\"alg\":\"ML-DSA-87\",\"typ\":\"MOQT\xff\",\"kid\":\"KID\"}"), parts[1]), "malformed"),
 
 		valid("claims nested as deep as allowed", withClaims("deep", `{"aud":`, nested(127)), baseClaims()),
 		valid("unknown claim that is null is ignored", withClaims("null", `{"aud":`, `{"later":null,"aud":`), baseClaims()),
@@ -386,7 +382,7 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 		valid("whitespace around and inside the claims", keys.signRaw(current, mldsaHeader, rawSegment(
 			" \n"+strings.ReplaceAll(base, `":`, `" : `)+"\t\r\n")), baseClaims()),
 		valid("grant integers at their limits", mint(current, limits), limits),
-		valid("header with whitespace and escapes", keys.signRaw(current, header(` {"alg" : "ML-DSA-65", "typ":"MO\u0051T", "kid":"KID"} `), parts[1]), baseClaims()),
+		valid("header with whitespace and escapes", keys.signRaw(current, header(` {"alg" : "ML-DSA-87", "typ":"MO\u0051T", "kid":"KID"} `), parts[1]), baseClaims()),
 	)
 
 	cases = append(cases,
@@ -400,9 +396,10 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 		refused("alg none", headerFor("none", Type, current)+"."+parts[1]+".", "unsupported"),
 		refused("alg HS256", headerFor("HS256", Type, current)+"."+parts[1]+"."+parts[2], "unsupported"),
 		refused("alg empty", headerFor("", Type, current)+"."+parts[1]+"."+parts[2], "unsupported"),
-		refused("alg EdDSA for an ML-DSA-65 key", keys.signRaw(current, headerFor(string(EdDSA), Type, current), parts[1]), "unsupported"),
-		refused("alg ML-DSA-65 for an Ed25519 key", keys.signRaw(legacy, headerFor(string(MLDSA65), Type, legacy), rawSegment(claimsJSON(legacyClaims, nil))), "unsupported"),
-		refused("typ JWT", keys.signRaw(current, headerFor(string(MLDSA65), "JWT", current), parts[1]), "unsupported"),
+		refused("alg EdDSA for an ML-DSA-87 key", keys.signRaw(current, headerFor("EdDSA", Type, current), parts[1]), "unsupported"),
+		refused("alg ML-DSA-65 for an ML-DSA-87 key", keys.signRaw(current, headerFor("ML-DSA-65", Type, current), parts[1]), "unsupported"),
+		refused("alg ES256 for an ML-DSA-87 key", keys.signRaw(current, headerFor("ES256", Type, current), parts[1]), "unsupported"),
+		refused("typ JWT", keys.signRaw(current, headerFor(string(MLDSA87), "JWT", current), parts[1]), "unsupported"),
 		refused("over-long lifetime", edit(baseClaims(), func(m map[string]any) { m["exp"] = vectorNow + 901 }), "lifetime"),
 		refused("over-long lifetime without iat", edit(baseClaims(), func(m map[string]any) {
 			delete(m, "iat")
@@ -427,7 +424,7 @@ func buildVerify(t *testing.T, keys vectorKeys) []verifyCase {
 		refused("claims are not JSON", keys.signRaw(current, mldsaHeader, rawSegment(`{"sub":`)), "malformed"),
 		refused("claims are not base64url", keys.signRaw(current, mldsaHeader, "e30!"), "malformed"),
 		refused("unknown header parameter", keys.signRaw(current, rawSegment(
-			`{"alg":"ML-DSA-65","typ":"MOQT","kid":"`+current+`","crit":["exp"]}`), parts[1]), "malformed"),
+			`{"alg":"ML-DSA-87","typ":"MOQT","kid":"`+current+`","crit":["exp"]}`), parts[1]), "malformed"),
 		refused("header is not JSON", rawSegment("alg")+"."+parts[1]+"."+parts[2], "malformed"),
 		refused("header is not base64url", "e30="+"."+parts[1]+"."+parts[2], "malformed"),
 		refused("signature is not base64url", parts[0]+"."+parts[1]+"."+parts[2][:40]+"+", "malformed"),
@@ -481,7 +478,7 @@ func buildSign(t *testing.T, keys vectorKeys) []signCase {
 		return json.RawMessage(claimsJSON(claims, change))
 	}
 	full := baseClaims()
-	full.ID, full.Via, full.E2EE = "vector-full", "bea", "required"
+	full.ID, full.Via = "vector-full", "bea"
 	full.Grant = Grant{Room: "room-42", Publish: 15, Capabilities: 0x101, Owner: true, Backstage: true, AgeVerified: true, Relay: true}
 	escapes := baseClaims()
 	escapes.Subject = "\"quoted\" back\\slash <tag> & \u00e9\u0301 \U0001F600"
@@ -554,14 +551,13 @@ func buildKeySets(t *testing.T, keys vectorKeys) []keySetCase {
 		}
 		return string(encoded)
 	}
-	current, next, legacy := jwk(keys.current()), jwk("pq-next"), jwk(keys.legacyID())
-	currentPub := keys.public[keys.current()].Bytes()
-	legacyX := base64.RawURLEncoding.EncodeToString(keys.public[keys.legacyID()].Bytes())
+	current, next := jwk(keys.current()), jwk("pq-next")
+	pub := base64.RawURLEncoding.EncodeToString(keys.public[keys.current()].Bytes())
+	nextPub := base64.RawURLEncoding.EncodeToString(keys.public["pq-next"].Bytes())
+	ed25519X := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x04}, 32))
 	akp := func(kid, pub string) string {
-		return `{"kty":"AKP","alg":"ML-DSA-65","kid":"` + kid + `","pub":"` + pub + `"}`
+		return `{"kty":"AKP","alg":"ML-DSA-87","kid":"` + kid + `","pub":"` + pub + `"}`
 	}
-	okp := func(kid, x string) string { return `{"kty":"OKP","crv":"Ed25519","kid":"` + kid + `","x":"` + x + `"}` }
-	pub := base64.RawURLEncoding.EncodeToString(currentPub)
 	accepted := func(name, document string, kids ...string) keySetCase {
 		if kids == nil {
 			kids = []string{}
@@ -571,19 +567,18 @@ func buildKeySets(t *testing.T, keys vectorKeys) []keySetCase {
 	refused := func(name, document, class string) keySetCase {
 		return keySetCase{Name: name, Document: document, Error: class}
 	}
-	all := []string{keys.current(), "pq-next", keys.legacyID()}
+	both := []string{keys.current(), "pq-next"}
 	return []keySetCase{
-		accepted("wrapped", `{"keys":[`+current+`,`+next+`,`+legacy+`]}`, all...),
-		accepted("bare array", `[`+current+`,`+next+`,`+legacy+`]`, all...),
+		accepted("wrapped", `{"keys":[`+current+`,`+next+`]}`, both...),
+		accepted("bare array", `[`+current+`,`+next+`]`, both...),
 		accepted("empty", `{"keys":[]}`),
 		accepted("members a key does not need are ignored",
-			`{"keys":[{"kty":"OKP","crv":"Ed25519","use":"sig","key_ops":["verify"],"kid":"old","x":"`+legacyX+`"}],"cache":"max-age=60"}`, "old"),
+			`{"keys":[{"kty":"AKP","alg":"ML-DSA-87","use":"sig","key_ops":["verify"],"kid":"old","pub":"`+pub+`"}],"cache":"max-age=60"}`, "old"),
 		accepted("member names that differ only in case are not duplicates",
-			`[{"kty":"OKP","crv":"Ed25519","kid":"old","KID":"other","x":"`+legacyX+`"}]`, "old"),
+			`[{"kty":"AKP","alg":"ML-DSA-87","kid":"old","KID":"other","pub":"`+pub+`"}]`, "old"),
 
-		refused("the same kid twice", `{"keys":[`+akp("k", pub)+`,`+akp("k", base64.RawURLEncoding.EncodeToString(keys.public["pq-next"].Bytes()))+`]}`, "duplicate_kid"),
+		refused("the same kid twice", `{"keys":[`+akp("k", pub)+`,`+akp("k", nextPub)+`]}`, "duplicate_kid"),
 		refused("the same key twice", `{"keys":[`+current+`,`+current+`]}`, "duplicate_kid"),
-		refused("one kid on an ML-DSA-65 and an Ed25519 key", `[`+akp("k", pub)+`,`+okp("k", legacyX)+`]`, "duplicate_kid"),
 
 		refused("not JSON", `{"keys":[`, "set_malformed"),
 		refused("a single JWK rather than a set", current, "set_malformed"),
@@ -591,47 +586,50 @@ func buildKeySets(t *testing.T, keys vectorKeys) []keySetCase {
 		refused("keys is null", `{"keys":null}`, "set_malformed"),
 		refused("null", `null`, "set_malformed"),
 		refused("a key that is not an object", `["`+pub[:8]+`"]`, "set_malformed"),
-		refused("a key with no kid", `[{"kty":"OKP","crv":"Ed25519","x":"`+legacyX+`"}]`, "set_malformed"),
-		refused("a key with an empty kid", `[`+okp("", legacyX)+`]`, "set_malformed"),
-		refused("a key with no kty", `[{"crv":"Ed25519","kid":"old","x":"`+legacyX+`"}]`, "set_malformed"),
-		refused("member names are case-sensitive", `[{"kty":"OKP","crv":"Ed25519","KID":"old","x":"`+legacyX+`"}]`, "set_malformed"),
-		refused("a null member", `[{"kty":"OKP","crv":null,"kid":"old","x":"`+legacyX+`"}]`, "set_malformed"),
-		refused("a member of the wrong type", `[{"kty":"OKP","crv":"Ed25519","kid":7,"x":"`+legacyX+`"}]`, "set_malformed"),
-		refused("a member named twice", `[{"kty":"OKP","crv":"Ed25519","kid":"old","x":"AAAA","x":"`+legacyX+`"}]`, "set_malformed"),
-		refused("keys named twice", `{"keys":[],"keys":[`+legacy+`]}`, "set_malformed"),
-		refused("a malformed key after a good one", `[`+legacy+`,{"kty":"OKP"}]`, "set_malformed"),
-		refused("a kid with an unpaired surrogate escape", `[`+okp(`old\ud83d`, legacyX)+`]`, "set_malformed"),
+		refused("a key with no kid", `[{"kty":"AKP","alg":"ML-DSA-87","pub":"`+pub+`"}]`, "set_malformed"),
+		refused("a key with an empty kid", `[`+akp("", pub)+`]`, "set_malformed"),
+		refused("a key with no kty", `[{"alg":"ML-DSA-87","kid":"old","pub":"`+pub+`"}]`, "set_malformed"),
+		refused("member names are case-sensitive", `[{"kty":"AKP","alg":"ML-DSA-87","KID":"old","pub":"`+pub+`"}]`, "set_malformed"),
+		refused("a null member", `[{"kty":"AKP","alg":null,"kid":"old","pub":"`+pub+`"}]`, "set_malformed"),
+		refused("a member of the wrong type", `[{"kty":"AKP","alg":"ML-DSA-87","kid":7,"pub":"`+pub+`"}]`, "set_malformed"),
+		refused("a member named twice", `[{"kty":"AKP","alg":"ML-DSA-87","kid":"old","pub":"AAAA","pub":"`+pub+`"}]`, "set_malformed"),
+		refused("keys named twice", `{"keys":[],"keys":[`+current+`]}`, "set_malformed"),
+		refused("a malformed key after a good one", `[`+current+`,{"kty":"AKP"}]`, "set_malformed"),
+		refused("a kid with an unpaired surrogate escape", `[`+akp(`old\ud83d`, pub)+`]`, "set_malformed"),
 		refused("an ignored member with an unpaired surrogate escape",
-			`{"keys":[`+legacy+`],"note":"\udc00"}`, "set_malformed"),
-		refused("a number too large for a double", `{"keys":[`+legacy+`],"version":1e400}`, "set_malformed"),
-		refused("a leading-zero number", `{"keys":[`+legacy+`],"version":01}`, "set_malformed"),
+			`{"keys":[`+current+`],"note":"\udc00"}`, "set_malformed"),
+		refused("a number too large for a double", `{"keys":[`+current+`],"version":1e400}`, "set_malformed"),
+		refused("a leading-zero number", `{"keys":[`+current+`],"version":01}`, "set_malformed"),
 		refused("nested one deeper than allowed",
-			`[{"kty":"OKP","crv":"Ed25519","kid":"old","x":"`+legacyX+`","ext":`+strings.Repeat("[", 126)+strings.Repeat("]", 126)+`}]`, "set_malformed"),
-		refused("a byte order mark", "\uFEFF["+legacy+"]", "set_malformed"),
-		refused("data after the set", `[`+legacy+`] []`, "set_malformed"),
-		refused("a raw control character in a string", "[{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"kid\":\"o\x01ld\",\"x\":\""+legacyX+"\"}]", "set_malformed"),
+			`[{"kty":"AKP","alg":"ML-DSA-87","kid":"old","pub":"`+pub+`","ext":`+strings.Repeat("[", 126)+strings.Repeat("]", 126)+`}]`, "set_malformed"),
+		refused("a byte order mark", "\uFEFF["+current+"]", "set_malformed"),
+		refused("data after the set", `[`+current+`] []`, "set_malformed"),
+		refused("a raw control character in a string", "[{\"kty\":\"AKP\",\"alg\":\"ML-DSA-87\",\"kid\":\"o\x01ld\",\"pub\":\""+pub+"\"}]", "set_malformed"),
 		refused("a top-level string", `"keys"`, "set_malformed"),
-		refused("a key that is an array", `[["OKP","Ed25519","","old","`+legacyX+`",""]]`, "set_malformed"),
-		refused("a wrapped set that is an array", `[[[`+legacy+`]]]`, "set_malformed"),
+		refused("a key that is an array", `[["AKP","ML-DSA-87","old","`+pub+`"]]`, "set_malformed"),
+		refused("a wrapped set that is an array", `[[[`+current+`]]]`, "set_malformed"),
 		accepted("kids that differ only in Unicode normalization are distinct",
-			`[`+okp("café", legacyX)+`,`+okp("café", legacyX)+`]`, "café", "café"),
+			`[`+akp("café", pub)+`,`+akp("café", pub)+`]`, "café", "café"),
 		accepted("nested as deep as allowed",
-			`[{"kty":"OKP","crv":"Ed25519","kid":"old","x":"`+legacyX+`","ext":`+strings.Repeat("[", 125)+strings.Repeat("]", 125)+`}]`, "old"),
-		accepted("ignored members may be null or any number", `{"keys":[{"kty":"OKP","crv":"Ed25519","use":null,"kid":"old","x":"`+legacyX+`","n":[1.5,-0,1e-400]}],"next":null}`, "old"),
-		accepted("a kid with a surrogate pair escape and whitespace", " [ "+okp(`old\ud83d\ude00`, legacyX)+" ]\n", "old\U0001F600"),
+			`[{"kty":"AKP","alg":"ML-DSA-87","kid":"old","pub":"`+pub+`","ext":`+strings.Repeat("[", 125)+strings.Repeat("]", 125)+`}]`, "old"),
+		accepted("ignored members may be null or any number", `{"keys":[{"kty":"AKP","alg":"ML-DSA-87","use":null,"kid":"old","pub":"`+pub+`","n":[1.5,-0,1e-400]}],"next":null}`, "old"),
+		accepted("a kid with a surrogate pair escape and whitespace", " [ "+akp(`old\ud83d\ude00`, pub)+" ]\n", "old\U0001F600"),
 
+		refused("ML-DSA-65", `[{"kty":"AKP","alg":"ML-DSA-65","kid":"k","pub":"`+pub[:2603]+`"}]`, "key_unsupported"),
 		refused("ML-DSA-44", `[{"kty":"AKP","alg":"ML-DSA-44","kid":"k","pub":"`+pub+`"}]`, "key_unsupported"),
 		refused("AKP with no alg", `[{"kty":"AKP","kid":"k","pub":"`+pub+`"}]`, "key_unsupported"),
-		refused("EC P-256", `[{"kty":"EC","crv":"P-256","kid":"k","x":"`+legacyX+`","y":"`+legacyX+`"}]`, "key_unsupported"),
-		refused("OKP X25519", `[{"kty":"OKP","crv":"X25519","kid":"k","x":"`+legacyX+`"}]`, "key_unsupported"),
-		refused("an unsupported key after a good one", `[`+legacy+`,{"kty":"oct","kid":"k","k":"AAAA"}]`, "key_unsupported"),
+		refused("OKP Ed25519", `[{"kty":"OKP","crv":"Ed25519","kid":"k","x":"`+ed25519X+`"}]`, "key_unsupported"),
+		refused("EC P-256", `[{"kty":"EC","crv":"P-256","kid":"k","x":"`+ed25519X+`","y":"`+ed25519X+`"}]`, "key_unsupported"),
+		refused("OKP X25519", `[{"kty":"OKP","crv":"X25519","kid":"k","x":"`+ed25519X+`"}]`, "key_unsupported"),
+		refused("an Ed25519 key after a good one", `[`+current+`,{"kty":"OKP","crv":"Ed25519","kid":"old","x":"`+ed25519X+`"}]`, "key_unsupported"),
+		refused("an unsupported key after a good one", `[`+current+`,{"kty":"oct","kid":"k","k":"AAAA"}]`, "key_unsupported"),
 
-		refused("ML-DSA-65 key of the wrong length", `[`+akp("k", pub[:len(pub)-4])+`]`, "key_invalid"),
-		refused("Ed25519 key of the wrong length", `[`+okp("k", legacyX+"AAAA")+`]`, "key_invalid"),
-		refused("public key with padding", `[`+okp("k", legacyX+"=")+`]`, "key_invalid"),
-		refused("public key in standard base64", `[`+okp("k", "+"+legacyX[1:])+`]`, "key_invalid"),
-		refused("public key with a line break", `[`+okp("k", legacyX[:20]+`\n`+legacyX[20:])+`]`, "key_invalid"),
-		refused("no public key", `[{"kty":"AKP","alg":"ML-DSA-65","kid":"k"}]`, "key_invalid"),
+		refused("ML-DSA-87 key of the wrong length", `[`+akp("k", pub[:len(pub)-4])+`]`, "key_invalid"),
+		refused("ML-DSA-87 alg on an ML-DSA-65-sized key", `[`+akp("k", pub[:2603])+`]`, "key_invalid"),
+		refused("public key with padding", `[`+akp("k", pub+"=")+`]`, "key_invalid"),
+		refused("public key in standard base64", `[`+akp("k", "+"+pub[1:])+`]`, "key_invalid"),
+		refused("public key with a line break", `[`+akp("k", pub[:20]+`\n`+pub[20:])+`]`, "key_invalid"),
+		refused("no public key", `[{"kty":"AKP","alg":"ML-DSA-87","kid":"k"}]`, "key_invalid"),
 	}
 }
 
@@ -681,20 +679,29 @@ func encodeVectors(t *testing.T, value any) []byte {
 
 func TestVectors(t *testing.T) {
 	keys := buildKeys(t)
+	sealSpecs, seals := vectorSealKeys(t)
 	files := map[string][]byte{
 		"verify.json": encodeVectors(t, vectorFile[verifyCase]{
 			Library:     "moqom-token",
-			Description: "Verifying tokens: each case names the verifier's issuer, tenant pin and key set, and gives the claims a verified token yields or the error class it is refused with.",
-			Source:      "Generated by go/token/vectors_test.go (MOQOM_WRITE_VECTORS=1) with deterministic ML-DSA-65 and Ed25519.",
+			Description: "Verifying tokens: each case names the verifier's issuer, tenant pin, pool pin (absent: not checked) and key set, and gives the claims a verified token yields or the error class it is refused with.",
+			Source:      "Generated by go/token/vectors_test.go (MOQOM_WRITE_VECTORS=1) with deterministic ML-DSA-87.",
 			Keys:        keys.specs,
 			Cases:       buildVerify(t, keys),
 		}),
 		"sign.json": encodeVectors(t, vectorFile[signCase]{
 			Library:     "moqom-token",
-			Description: "Signing tokens: the canonical header.claims bytes every implementation must produce for the claims given, and the token Go's deterministic ML-DSA-65 makes of them, or the error class signing is refused with.",
-			Source:      "Generated by go/token/vectors_test.go (MOQOM_WRITE_VECTORS=1) with deterministic ML-DSA-65.",
+			Description: "Signing tokens: the canonical header.claims bytes every implementation must produce for the claims given, and the token Go's deterministic ML-DSA-87 makes of them, or the error class signing is refused with.",
+			Source:      "Generated by go/token/vectors_test.go (MOQOM_WRITE_VECTORS=1) with deterministic ML-DSA-87.",
 			Keys:        keys.specs,
 			Cases:       buildSign(t, keys),
+		}),
+		"seal.json": encodeVectors(t, sealVectorFile{
+			Library:     "moqom-token",
+			Description: "Sealing tokens: base64url(version 0x01 | 8-byte key id | 12-byte nonce | AES-256-GCM(segments)), with version and key id as additional data and segments the JWS header and claims, each after a two-byte big-endian length, then the signature, as raw bytes. Each case either seals a signed token under the key and nonce given and must match exactly, then opens it with the keys listed; or, with now set, verifies it with the signing keys and those seal keys, giving claims or an error class.",
+			Source:      "Generated by go/token/vectors_test.go (MOQOM_WRITE_VECTORS=1) with deterministic ML-DSA-87 and fixed nonces.",
+			Keys:        keys.specs,
+			SealKeys:    sealSpecs,
+			Cases:       buildSeal(t, keys, seals),
 		}),
 		"keysets.json": encodeVectors(t, vectorFile[keySetCase]{
 			Library:     "moqom-token",
@@ -723,6 +730,7 @@ func TestVectors(t *testing.T) {
 	runVerifyVectors(t)
 	runSignVectors(t)
 	runKeySetVectors(t)
+	runSealVectors(t)
 }
 
 func readVectors[C any](t *testing.T, name string) (vectorFile[C], map[string]PublicKey, map[string]*Signer) {
@@ -752,18 +760,14 @@ func readVectors[C any](t *testing.T, name string) (vectorFile[C], map[string]Pu
 			t.Fatalf("key %s derives kid %s", spec.Kid, key.ID())
 		}
 		public[spec.Kid] = key
-		if Algorithm(spec.Alg) == MLDSA65 {
-			signer, err := NewSigner(seedBytes)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(signer.PublicKey().Bytes(), raw) {
-				t.Fatalf("key %s: the seed does not give the public key", spec.Kid)
-			}
-			signers[spec.Kid] = signer.WithID(spec.Kid)
-		} else if !bytes.Equal(ed25519.NewKeyFromSeed(seedBytes).Public().(ed25519.PublicKey), raw) {
+		signer, err := NewSigner(seedBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(signer.PublicKey().Bytes(), raw) {
 			t.Fatalf("key %s: the seed does not give the public key", spec.Kid)
 		}
+		signers[spec.Kid] = signer.WithID(spec.Kid)
 	}
 	return file, public, signers
 }
@@ -777,6 +781,9 @@ func runVerifyVectors(t *testing.T) {
 				set = append(set, public[kid])
 			}
 			verifier := NewVerifier(c.Issuer, set...).ForTenant(c.Tenant)
+			if c.Pool != nil {
+				verifier = verifier.ForPool(*c.Pool)
+			}
 			claims, err := verifier.Verify(c.Token, time.Unix(c.Now, 0))
 			if c.Error != "" {
 				if Class(err) != c.Error {

@@ -23,10 +23,7 @@ struct File<T> {
 struct KeyCase {
     name: String,
     alg: String,
-    #[serde(default)]
     seed_hex: String,
-    #[serde(default)]
-    pkcs8_hex: String,
     jwk: Jwk,
     thumbprint: String,
 }
@@ -78,12 +75,14 @@ fn read<T: for<'de> Deserialize<'de>>(json: &str) -> File<T> {
 #[test]
 fn keys() {
     for case in read::<KeyCase>(KEYS).cases {
-        let prover = match Algorithm::from_jose(&case.alg) {
-            Some(Algorithm::MlDsa65) => Prover::ml_dsa_65_from_seed(&hex(&case.seed_hex)),
-            Some(Algorithm::Es256) => Prover::from_pkcs8(&hex(&case.pkcs8_hex)),
-            None => panic!("{}: unknown alg", case.name),
-        }
-        .unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        assert_eq!(
+            Algorithm::from_jose(&case.alg),
+            Some(Algorithm::MlDsa87),
+            "{}",
+            case.name
+        );
+        let prover = Prover::ml_dsa_87_from_seed(&hex(&case.seed_hex))
+            .unwrap_or_else(|e| panic!("{}: {e}", case.name));
         assert_eq!(prover.jwk(), &case.jwk, "{}", case.name);
         assert_eq!(prover.thumbprint(), case.thumbprint, "{}", case.name);
 

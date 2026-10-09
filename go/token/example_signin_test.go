@@ -43,7 +43,7 @@ func Example_deviceBoundSignIn() {
 	issuer = issuer.WithID("2026-10")
 	verifier := token.NewVerifier("https://api.example.com", issuer.PublicKey()).ForTenant("acme")
 	checker, err := proof.NewChecker(proof.NewDefaultMemoryNonceStore(),
-		proof.WithAlgorithms(proof.MLDSA65), proof.WithCertificateRequired(true))
+		proof.WithAlgorithms(proof.MLDSA87), proof.WithCertificateRequired(true))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func Example_deviceBoundSignIn() {
 	// ---- The device ----
 
 	// On iOS this key is made in the Secure Enclave and never leaves it.
-	device, err := proof.GenerateProver(proof.MLDSA65)
+	device, err := proof.GenerateProver(proof.MLDSA87)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func Example_deviceBoundSignIn() {
 	fmt.Println(me(jws, func([]byte) []byte { return captured }))
 
 	// Someone who steals the token and proves with their own key.
-	thief, err := proof.GenerateProver(proof.MLDSA65)
+	thief, err := proof.GenerateProver(proof.MLDSA87)
 	if err != nil {
 		log.Fatal(err)
 	}

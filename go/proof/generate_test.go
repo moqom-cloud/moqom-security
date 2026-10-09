@@ -9,7 +9,9 @@ package proof
 // they are compared.
 //
 // Every signature is deterministic (ML-DSA's deterministic variant, RFC 6979
-// for ECDSA). Implementations verifying them need not sign that way.
+// for the ES256 proofs that must be refused, ML-DSA-65's for the ML-DSA-65
+// ones). Implementations verifying them
+// need not sign that way.
 
 import (
 	"bytes"
@@ -18,9 +20,10 @@ import (
 	"crypto/elliptic"
 	"crypto/mldsa"
 	"crypto/sha256"
-	"crypto/x509"
+	"encoding/asn1"
 	"encoding/hex"
 	"encoding/json"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -59,18 +62,29 @@ type vectorFile struct {
 type keyCase struct {
 	Name       string `json:"name"`
 	Alg        string `json:"alg"`
-	SeedHex    string `json:"seed_hex,omitempty"`
-	PrivateHex string `json:"private_hex,omitempty"`
-	PKCS8Hex   string `json:"pkcs8_hex,omitempty"`
+	SeedHex    string `json:"seed_hex"`
 	JWK        JWK    `json:"jwk"`
 	Thumbprint string `json:"thumbprint"`
 }
 
+// vectorJWK is a JWK as a vector spells it, EC members included, so that the
+// keys this package refuses can be written down.
+type vectorJWK struct {
+	Kty string `json:"kty"`
+	Alg string `json:"alg,omitempty"`
+	Pub string `json:"pub,omitempty"`
+	Crv string `json:"crv,omitempty"`
+	X   string `json:"x,omitempty"`
+	Y   string `json:"y,omitempty"`
+}
+
+func (v vectorJWK) jwk() JWK { return JWK{Kty: v.Kty, Alg: v.Alg, Pub: v.Pub} }
+
 type thumbprintCase struct {
-	Name       string `json:"name"`
-	JWK        JWK    `json:"jwk"`
-	Thumbprint string `json:"thumbprint,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Name       string    `json:"name"`
+	JWK        vectorJWK `json:"jwk"`
+	Thumbprint string    `json:"thumbprint,omitempty"`
+	Error      string    `json:"error,omitempty"`
 }
 
 type proofCase struct {
@@ -87,16 +101,14 @@ type proofCase struct {
 }
 
 type vectorKey struct {
-	name    string
-	prover  *Prover
-	seed    []byte
-	private []byte
-	pkcs8   []byte
+	name   string
+	prover *Prover
+	seed   []byte
 }
 
 func mldsaVectorKey(t *testing.T, name string, fill byte) vectorKey {
 	seed := bytes.Repeat([]byte{fill}, mldsa.PrivateKeySize)
-	key, err := mldsa.NewPrivateKey(mldsa.MLDSA65(), seed)
+	key, err := mldsa.NewPrivateKey(mldsa.MLDSA87(), seed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,21 +119,83 @@ func mldsaVectorKey(t *testing.T, name string, fill byte) vectorKey {
 	return vectorKey{name: name, prover: prover.Deterministic(), seed: seed}
 }
 
-func es256VectorKey(t *testing.T, name string, fill byte) vectorKey {
-	scalar := bytes.Repeat([]byte{fill}, 32)
-	key, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), scalar)
+// classicalKey is a P-256 key, for ES256 proofs a checker must refuse: what an
+// older device would send, correctly signed, and not post-quantum.
+type classicalKey struct {
+	key  *ecdsa.PrivateKey
+	x, y string
+}
+
+func newClassicalKey(t *testing.T) classicalKey {
+	key, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), bytes.Repeat([]byte{0x07}, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	point, err := key.PublicKey.Bytes()
 	if err != nil {
 		t.Fatal(err)
 	}
-	prover, err := NewProver(key)
+	return classicalKey{key: key, x: b64.EncodeToString(point[1:33]), y: b64.EncodeToString(point[33:])}
+}
+
+func (k classicalKey) canonical() string {
+	return `{"crv":"P-256","kty":"EC","x":"` + k.x + `","y":"` + k.y + `"}`
+}
+
+func (k classicalKey) thumbprint() string {
+	sum := sha256.Sum256([]byte(k.canonical()))
+	return b64.EncodeToString(sum[:])
+}
+
+// forge signs header and claims with ES256, the signature as JWS's r||s.
+func (k classicalKey) forge(t *testing.T, header, claims string) string {
+	signed := b64.EncodeToString([]byte(header)) + "." + b64.EncodeToString([]byte(claims))
+	digest := sha256.Sum256([]byte(signed))
+	der, err := k.key.Sign(nil, digest[:], crypto.SHA256)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return vectorKey{name: name, prover: prover.Deterministic(), private: scalar, pkcs8: pkcs8}
+	var parsed struct{ R, S *big.Int }
+	if _, err := asn1.Unmarshal(der, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	signature := make([]byte, 64)
+	parsed.R.FillBytes(signature[:32])
+	parsed.S.FillBytes(signature[32:])
+	return signed + "." + b64.EncodeToString(signature)
+}
+
+// mlDSA65Key is an ML-DSA-65 key, for proofs a checker must refuse: correctly
+// signed, post-quantum, and not the parameter set MOQOM accepts.
+type mlDSA65Key struct {
+	key *mldsa.PrivateKey
+	pub string
+}
+
+func newMLDSA65Key(t *testing.T) mlDSA65Key {
+	key, err := mldsa.NewPrivateKey(mldsa.MLDSA65(), bytes.Repeat([]byte{0x07}, mldsa.PrivateKeySize))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mlDSA65Key{key: key, pub: b64.EncodeToString(key.PublicKey().Bytes())}
+}
+
+func (k mlDSA65Key) canonical() string {
+	return `{"alg":"ML-DSA-65","kty":"AKP","pub":"` + k.pub + `"}`
+}
+
+func (k mlDSA65Key) thumbprint() string {
+	sum := sha256.Sum256([]byte(k.canonical()))
+	return b64.EncodeToString(sum[:])
+}
+
+func (k mlDSA65Key) forge(t *testing.T, header, claims string) string {
+	signed := b64.EncodeToString([]byte(header)) + "." + b64.EncodeToString([]byte(claims))
+	signature, err := k.key.SignDeterministic([]byte(signed), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed + "." + b64.EncodeToString(signature)
 }
 
 // forge signs arbitrary header and claims JSON with key, for the cases a
@@ -149,6 +223,14 @@ func prove(t *testing.T, key *Prover, token string, certificateHash []byte, jti 
 	return string(proof)
 }
 
+// truncate drops the last n bytes of the signature, keeping the canonical
+// spelling.
+func truncate(t *testing.T, jws string, n int) string {
+	at := strings.LastIndexByte(jws, '.') + 1
+	signature := mustDecode(t, jws[at:])
+	return jws[:at] + b64.EncodeToString(signature[:len(signature)-n])
+}
+
 // flip changes one base64url character of segment index (0, 1 or 2) to
 // another, keeping the alphabet and the canonical spelling.
 func flip(jws string, index int) string {
@@ -165,38 +247,35 @@ func flip(jws string, index int) string {
 }
 
 func generate(t *testing.T) map[string]vectorFile {
-	device := mldsaVectorKey(t, "ml-dsa-65 device", 0x07)
-	other := mldsaVectorKey(t, "ml-dsa-65 other device", 0x08)
-	legacy := es256VectorKey(t, "es256 device", 0x07)
-	legacyOther := es256VectorKey(t, "es256 other device", 0x08)
+	device := mldsaVectorKey(t, "ml-dsa-87 device", 0x07)
+	other := mldsaVectorKey(t, "ml-dsa-87 other device", 0x08)
+	classical := newClassicalKey(t)
+	previous := newMLDSA65Key(t)
 
 	var keys []keyCase
-	for _, k := range []vectorKey{device, other, legacy, legacyOther} {
+	for _, k := range []vectorKey{device, other} {
 		keys = append(keys, keyCase{
 			Name:       k.name,
 			Alg:        string(k.prover.Algorithm()),
 			SeedHex:    hex.EncodeToString(k.seed),
-			PrivateHex: hex.EncodeToString(k.private),
-			PKCS8Hex:   hex.EncodeToString(k.pkcs8),
 			JWK:        k.prover.JWK(),
 			Thumbprint: k.prover.Thumbprint(),
 		})
 	}
 
-	thumbprints := thumbprintCases(t, device.prover.JWK())
+	thumbprints := thumbprintCases(t, device.prover.JWK(), previous.pub)
 
 	cert := certificate[:]
 	ml := device.prover
-	es := legacy.prover
 	mlHeader := ml.header
-	esHeader := es.header
 	akp := ml.JWK()
-	ec := es.JWK()
 	mlCanonical, _ := akp.canonical()
-	esCanonical, _ := ec.canonical()
+	esHeader := `{"alg":"ES256","typ":"MOQT-POP","jwk":` + classical.canonical() + `}`
 
 	valid := prove(t, ml, shortToken, cert, "ml-dsa-valid", vectorNow)
-	validES := prove(t, es, shortToken, cert, "es256-valid", vectorNow)
+	validES := classical.forge(t, esHeader, claimsJSON(shortToken, vectorNow, "es256-valid", cert))
+	valid65 := previous.forge(t, `{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":`+previous.canonical()+`}`,
+		claimsJSON(shortToken, vectorNow, "ml-dsa-65-valid", cert))
 
 	c := func(name, token, proof string, thumbprint string, err string) proofCase {
 		return proofCase{
@@ -204,54 +283,51 @@ func generate(t *testing.T) map[string]vectorFile {
 			Thumbprint: thumbprint, Now: vectorNow, Until: vectorUntil, Proof: proof, Error: err,
 		}
 	}
-	mlT, esT := ml.Thumbprint(), es.Thumbprint()
+	mlT, esT, ml65T := ml.Thumbprint(), classical.thumbprint(), previous.thumbprint()
 
 	proofs := []proofCase{
-		c("ml-dsa-65 valid", shortToken, valid, mlT, ""),
-		c("ml-dsa-65 valid over a jws-shaped token", jwsToken,
+		c("ml-dsa-87 valid", shortToken, valid, mlT, ""),
+		c("ml-dsa-87 valid over a jws-shaped token", jwsToken,
 			prove(t, ml, jwsToken, cert, "ml-dsa-jws", vectorNow), mlT, ""),
-		c("es256 valid", shortToken, validES, esT, ""),
-		c("es256 valid with jwk members in another order", shortToken,
-			forge(t, es, `{"alg":"ES256","typ":"MOQT-POP","jwk":{"kty":"EC","crv":"P-256","x":"`+ec.X+`","y":"`+ec.Y+`"}}`,
-				claimsJSON(shortToken, vectorNow, "es256-order", cert)), esT, ""),
-		c("ml-dsa-65 iat at the past edge of the window", shortToken,
+		c("es256 correctly signed, refused as not post-quantum", shortToken, validES, esT, "unsupported"),
+		c("ml-dsa-65 correctly signed, refused as not ml-dsa-87", shortToken, valid65, ml65T, "unsupported"),
+		c("ml-dsa-87 iat at the past edge of the window", shortToken,
 			prove(t, ml, shortToken, cert, "ml-dsa-past-edge", vectorNow-vectorWindow), mlT, ""),
-		c("ml-dsa-65 iat at the future edge of the window", shortToken,
+		c("ml-dsa-87 iat at the future edge of the window", shortToken,
 			prove(t, ml, shortToken, cert, "ml-dsa-future-edge", vectorNow+vectorWindow), mlT, ""),
 
-		c("ml-dsa-65 wrong certificate hash", shortToken,
+		c("ml-dsa-87 wrong certificate hash", shortToken,
 			prove(t, ml, shortToken, elsewhere[:], "ml-dsa-elsewhere", vectorNow), mlT, "wrong_certificate"),
-		c("es256 wrong certificate hash", shortToken,
-			prove(t, es, shortToken, elsewhere[:], "es256-elsewhere", vectorNow), esT, "wrong_certificate"),
-		c("ml-dsa-65 bound to no certificate", shortToken,
+		c("ml-dsa-87 bound to no certificate", shortToken,
 			prove(t, ml, shortToken, nil, "ml-dsa-unbound", vectorNow), mlT, "wrong_certificate"),
 
-		c("ml-dsa-65 wrong token", jwsToken, valid, mlT, "wrong_token"),
-		c("es256 wrong token", jwsToken, validES, esT, "wrong_token"),
-		c("ml-dsa-65 token is a prefix of the one proven", "a", valid, mlT, "wrong_token"),
+		c("ml-dsa-87 wrong token", jwsToken, valid, mlT, "wrong_token"),
+		c("ml-dsa-87 token is a prefix of the one proven", "a", valid, mlT, "wrong_token"),
 
-		c("ml-dsa-65 iat too old", shortToken,
+		c("ml-dsa-87 iat too old", shortToken,
 			prove(t, ml, shortToken, cert, "ml-dsa-old", vectorNow-vectorWindow-1), mlT, "expired"),
-		c("es256 iat too old", shortToken,
-			prove(t, es, shortToken, cert, "es256-old", vectorNow-3600), esT, "expired"),
-		c("ml-dsa-65 iat in the future", shortToken,
+		c("ml-dsa-87 iat in the future", shortToken,
 			prove(t, ml, shortToken, cert, "ml-dsa-future", vectorNow+vectorWindow+1), mlT, "not_yet_valid"),
-		c("es256 iat in the future", shortToken,
-			prove(t, es, shortToken, cert, "es256-future", vectorNow+3600), esT, "not_yet_valid"),
 
-		c("ml-dsa-65 signed by a key the token does not name", shortToken, valid, other.prover.Thumbprint(), "wrong_key"),
-		c("es256 signed by a key the token does not name", shortToken, validES, legacyOther.prover.Thumbprint(), "wrong_key"),
-		c("ml-dsa-65 proof for a token naming an es256 key", shortToken, valid, esT, "wrong_key"),
-		c("es256 proof for a token naming an ml-dsa-65 key", shortToken, validES, mlT, "wrong_key"),
+		c("ml-dsa-87 signed by a key the token does not name", shortToken, valid, other.prover.Thumbprint(), "wrong_key"),
+		c("ml-dsa-87 proof for a token naming an es256 key", shortToken, valid, esT, "wrong_key"),
+		c("es256 proof for a token naming an ml-dsa-87 key", shortToken, validES, mlT, "unsupported"),
+		c("ml-dsa-65 proof for a token naming an ml-dsa-87 key", shortToken, valid65, mlT, "unsupported"),
 
 		c("alg es256 over an akp key", shortToken,
 			forge(t, ml, `{"alg":"ES256","typ":"MOQT-POP","jwk":`+mlCanonical+`}`,
 				claimsJSON(shortToken, vectorNow, "confused-1", cert)), mlT, "unsupported"),
-		c("alg ml-dsa-65 over an ec key", shortToken,
-			forge(t, es, `{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":`+esCanonical+`}`,
+		c("alg ml-dsa-87 over an ec key", shortToken,
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":`+classical.canonical()+`}`,
 				claimsJSON(shortToken, vectorNow, "confused-2", cert)), esT, "unsupported"),
+		c("alg ml-dsa-65 over an ml-dsa-87 key", shortToken,
+			forge(t, ml, `{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":`+mlCanonical+`}`,
+				claimsJSON(shortToken, vectorNow, "confused-65", cert)), mlT, "unsupported"),
+		c("akp key naming ml-dsa-65", shortToken,
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":`+previous.canonical()+`}`,
+				claimsJSON(shortToken, vectorNow, "confused-65-key", cert)), ml65T, "unsupported"),
 		c("akp key naming ml-dsa-44", shortToken,
-			forge(t, ml, `{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-44","kty":"AKP","pub":"`+akp.Pub+`"}}`,
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-44","kty":"AKP","pub":"`+akp.Pub+`"}}`,
 				claimsJSON(shortToken, vectorNow, "confused-3", cert)), mlT, "unsupported"),
 		c("alg none", shortToken,
 			b64.EncodeToString([]byte(`{"alg":"none","typ":"MOQT-POP","jwk":`+mlCanonical+`}`))+"."+
@@ -260,22 +336,19 @@ func generate(t *testing.T) map[string]vectorFile {
 			forge(t, ml, `{"alg":"EdDSA","typ":"MOQT-POP","jwk":`+mlCanonical+`}`,
 				claimsJSON(shortToken, vectorNow, "eddsa", cert)), mlT, "unsupported"),
 		c("typ of a token rather than a proof", shortToken,
-			forge(t, ml, `{"alg":"ML-DSA-65","typ":"MOQT","jwk":`+mlCanonical+`}`,
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"MOQT","jwk":`+mlCanonical+`}`,
 				claimsJSON(shortToken, vectorNow, "typ-moqt", cert)), mlT, "unsupported"),
 		c("typ of an rfc 9449 dpop proof", shortToken,
-			forge(t, ml, `{"alg":"ML-DSA-65","typ":"dpop+jwt","jwk":`+mlCanonical+`}`,
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"dpop+jwt","jwk":`+mlCanonical+`}`,
 				claimsJSON(shortToken, vectorNow, "typ-dpop", cert)), mlT, "unsupported"),
 
-		c("ml-dsa-65 signature altered", shortToken, flip(valid, 2), mlT, "bad_signature"),
-		c("es256 signature altered", shortToken, flip(validES, 2), esT, "bad_signature"),
-		c("ml-dsa-65 claims altered after signing", shortToken, flip(valid, 1), mlT, "bad_signature"),
-		c("ml-dsa-65 signature truncated", shortToken, valid[:len(valid)-8], mlT, "bad_signature"),
-		c("es256 signature in der rather than r||s", shortToken, derSigned(t, legacy, esHeader), esT, "bad_signature"),
-		c("ml-dsa-65 signature by another key under this key's header", shortToken,
+		c("ml-dsa-87 signature altered", shortToken, flip(valid, 2), mlT, "bad_signature"),
+		c("ml-dsa-87 claims altered after signing", shortToken, flip(valid, 1), mlT, "bad_signature"),
+		c("ml-dsa-87 signature truncated", shortToken, truncate(t, valid, 6), mlT, "bad_signature"),
+		c("ml-dsa-87 signature by another key under this key's header", shortToken,
 			forge(t, other.prover, mlHeader, claimsJSON(shortToken, vectorNow, "swapped", cert)), mlT, "bad_signature"),
 
-		c("ml-dsa-65 replayed nonce", shortToken, valid, mlT, "replayed"),
-		c("es256 replayed nonce", shortToken, validES, esT, "replayed"),
+		c("ml-dsa-87 replayed nonce", shortToken, valid, mlT, "replayed"),
 
 		c("empty", shortToken, "", mlT, "malformed"),
 		c("only separators", shortToken, "..", mlT, "malformed"),
@@ -285,35 +358,20 @@ func generate(t *testing.T) map[string]vectorFile {
 		c("header is not json", shortToken,
 			forge(t, ml, `not json`, claimsJSON(shortToken, vectorNow, "nojson", cert)), mlT, "malformed"),
 		c("header carries no key", shortToken,
-			forge(t, ml, `{"alg":"ML-DSA-65","typ":"MOQT-POP"}`, claimsJSON(shortToken, vectorNow, "nokey", cert)), mlT, "malformed"),
-		c("ec key carrying its private scalar d", shortToken,
-			forge(t, es, `{"alg":"ES256","typ":"MOQT-POP","jwk":{"crv":"P-256","d":"`+b64.EncodeToString(legacy.private)+`","kty":"EC","x":"`+ec.X+`","y":"`+ec.Y+`"}}`,
-				claimsJSON(shortToken, vectorNow, "private-d", cert)), esT, "malformed"),
-		c("ec key carrying d as null", shortToken,
-			forge(t, es, `{"alg":"ES256","typ":"MOQT-POP","jwk":{"crv":"P-256","d":null,"kty":"EC","x":"`+ec.X+`","y":"`+ec.Y+`"}}`,
-				claimsJSON(shortToken, vectorNow, "private-d-null", cert)), esT, "malformed"),
-		c("ec key carrying an oct k", shortToken,
-			forge(t, es, `{"alg":"ES256","typ":"MOQT-POP","jwk":{"crv":"P-256","k":"AAAA","kty":"EC","x":"`+ec.X+`","y":"`+ec.Y+`"}}`,
-				claimsJSON(shortToken, vectorNow, "private-k", cert)), esT, "malformed"),
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"MOQT-POP"}`, claimsJSON(shortToken, vectorNow, "nokey", cert)), mlT, "malformed"),
 		c("akp key carrying priv", shortToken,
-			forge(t, ml, `{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-65","kty":"AKP","priv":"`+b64.EncodeToString(device.seed)+`","pub":"`+akp.Pub+`"}}`,
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-87","kty":"AKP","priv":"`+b64.EncodeToString(device.seed)+`","pub":"`+akp.Pub+`"}}`,
 				claimsJSON(shortToken, vectorNow, "private-priv", cert)), mlT, "malformed"),
 		c("akp key carrying seed", shortToken,
-			forge(t, ml, `{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-65","kty":"AKP","pub":"`+akp.Pub+`","seed":"`+b64.EncodeToString(device.seed)+`"}}`,
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-87","kty":"AKP","pub":"`+akp.Pub+`","seed":"`+b64.EncodeToString(device.seed)+`"}}`,
 				claimsJSON(shortToken, vectorNow, "private-seed", cert)), mlT, "malformed"),
 		c("akp key carrying d", shortToken,
-			forge(t, ml, `{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-65","d":"`+b64.EncodeToString(device.seed)+`","kty":"AKP","pub":"`+akp.Pub+`"}}`,
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-87","d":"`+b64.EncodeToString(device.seed)+`","kty":"AKP","pub":"`+akp.Pub+`"}}`,
 				claimsJSON(shortToken, vectorNow, "private-akp-d", cert)), mlT, "malformed"),
 		c("signature is padded", shortToken, valid+"=", mlT, "malformed"),
 		c("akp pub is the wrong length", shortToken,
-			forge(t, ml, `{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-65","kty":"AKP","pub":"`+akp.Pub[:len(akp.Pub)-4]+`"}}`,
+			forge(t, ml, `{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-87","kty":"AKP","pub":"`+akp.Pub[:len(akp.Pub)-4]+`"}}`,
 				claimsJSON(shortToken, vectorNow, "short-pub", cert)), mlT, "malformed"),
-		c("ec coordinate spelled non-canonically", shortToken,
-			forge(t, es, `{"alg":"ES256","typ":"MOQT-POP","jwk":{"crv":"P-256","kty":"EC","x":"`+nonCanonical(ec.X)+`","y":"`+ec.Y+`"}}`,
-				claimsJSON(shortToken, vectorNow, "noncanonical", cert)), esT, "malformed"),
-		c("ec point not on the curve", shortToken,
-			forge(t, es, `{"alg":"ES256","typ":"MOQT-POP","jwk":{"crv":"P-256","kty":"EC","x":"`+b64.EncodeToString(make([]byte, 32))+`","y":"`+b64.EncodeToString(make([]byte, 32))+`"}}`,
-				claimsJSON(shortToken, vectorNow, "off-curve", cert)), esT, "malformed"),
 		c("claims are not json", shortToken, forge(t, ml, mlHeader, `not json`), mlT, "malformed"),
 		c("no iat", shortToken,
 			forge(t, ml, mlHeader, `{"ath":"`+athOf(shortToken)+`","jti":"no-iat","rel":"`+b64.EncodeToString(cert)+`"}`), mlT, "malformed"),
@@ -327,10 +385,8 @@ func generate(t *testing.T) map[string]vectorFile {
 	}
 	for i := range proofs {
 		switch proofs[i].Name {
-		case "ml-dsa-65 replayed nonce":
+		case "ml-dsa-87 replayed nonce":
 			proofs[i].Spent = []string{"ml-dsa-valid"}
-		case "es256 replayed nonce":
-			proofs[i].Spent = []string{"es256-valid"}
 		}
 	}
 	withoutCertificate := func(name, proof, thumbprint, err string, require bool) proofCase {
@@ -341,41 +397,40 @@ func generate(t *testing.T) map[string]vectorFile {
 	}
 	noRel := `{"ath":"` + athOf(shortToken) + `","iat":1700000000,"jti":"ml-dsa-no-rel"}`
 	proofs = append(proofs,
-		withoutCertificate("ml-dsa-65 bound to no certificate, checked by a checker with none",
+		withoutCertificate("ml-dsa-87 bound to no certificate, checked by a checker with none",
 			prove(t, ml, shortToken, nil, "ml-dsa-unbound-ok", vectorNow), mlT, "", false),
-		withoutCertificate("ml-dsa-65 with no rel, checked by a checker with none",
+		withoutCertificate("ml-dsa-87 with no rel, checked by a checker with none",
 			forge(t, ml, mlHeader, noRel), mlT, "", false),
-		withoutCertificate("ml-dsa-65 bound to a certificate, checked by a checker with none",
+		withoutCertificate("ml-dsa-87 bound to a certificate, checked by a checker with none",
 			prove(t, ml, shortToken, cert, "ml-dsa-unverifiable", vectorNow), mlT, "wrong_certificate", false),
-		withoutCertificate("es256 bound to a certificate, checked by a checker with none",
-			prove(t, es, shortToken, cert, "es256-unverifiable", vectorNow), esT, "wrong_certificate", false),
-		withoutCertificate("ml-dsa-65 bound to no certificate, checked by a checker that requires one and has none",
+		withoutCertificate("ml-dsa-87 bound to no certificate, checked by a checker that requires one and has none",
 			prove(t, ml, shortToken, nil, "ml-dsa-required", vectorNow), mlT, "wrong_certificate", true),
-		withoutCertificate("ml-dsa-65 bound to a certificate, checked by a checker that requires one and has none",
+		withoutCertificate("ml-dsa-87 bound to a certificate, checked by a checker that requires one and has none",
 			prove(t, ml, shortToken, cert, "ml-dsa-required-bound", vectorNow), mlT, "wrong_certificate", true),
 	)
-	noRelBound := c("ml-dsa-65 with no rel, checked by a checker with a certificate", shortToken,
+	noRelBound := c("ml-dsa-87 with no rel, checked by a checker with a certificate", shortToken,
 		forge(t, ml, mlHeader, `{"ath":"`+athOf(shortToken)+`","iat":1700000000,"jti":"ml-dsa-no-rel-bound"}`), mlT, "wrong_certificate")
 	proofs = append(proofs, noRelBound)
-	requiredWithCertificate := c("ml-dsa-65 valid at a checker that requires a certificate and has one", shortToken,
+	requiredWithCertificate := c("ml-dsa-87 valid at a checker that requires a certificate and has one", shortToken,
 		prove(t, ml, shortToken, cert, "ml-dsa-required-ok", vectorNow), mlT, "")
 	requiredWithCertificate.RequireCertificate = true
 	proofs = append(proofs, requiredWithCertificate)
 	proofs = append(proofs, strictJSONCases(t, c, ml, mlT, other.prover.JWK().Pub)...)
 	proofs = append(proofs, byteCases(t, c, ml, mlT)...)
 
-	const source = "Generated by go/proof/generate_test.go (MOQOM_WRITE_VECTORS=1 go test ./proof); ML-DSA-65 and ES256 signatures are deterministic."
+	const source = "Generated by go/proof/generate_test.go (MOQOM_WRITE_VECTORS=1 go test ./proof); signatures are deterministic."
 	return map[string]vectorFile{
 		"keys.json": {
 			Library:     "moqom-proof",
-			Description: "Device keys from seeds (ML-DSA-65) or scalars (P-256), with the public JWK and thumbprint each must produce.",
+			Description: "ML-DSA-87 device keys from seeds, with the public JWK and thumbprint each must produce.",
 			Source:      source, Cases: keys,
 		},
 		"thumbprints.json": {
-			Library:     "moqom-proof",
-			Description: "JWK thumbprints: RFC 7638 for EC P-256, draft-ietf-cose-dilithium (alg, kty, pub) for AKP ML-DSA-65, and keys that have none.",
-			Source:      source + " The first EC case is RFC 7517 appendix A.1 thumbprinted per RFC 7638.",
-			Cases:       thumbprints,
+			Library: "moqom-proof",
+			Description: "JWK thumbprints: draft-ietf-cose-dilithium (alg, kty, pub) for AKP ML-DSA-87, and keys that have none, " +
+				"including every classical key and every other ML-DSA parameter set: EC, OKP, RSA, ML-DSA-44 and ML-DSA-65 are refused as unsupported, since only ML-DSA-87 is accepted.",
+			Source: source + " The first EC case is RFC 7517 appendix A.1.",
+			Cases:  thumbprints,
 		},
 		"proofs.json": {
 			Library: "moqom-proof",
@@ -404,7 +459,7 @@ func strictJSONCases(t *testing.T, c func(name, token, proof, thumbprint, err st
 		return c(name, shortToken, forge(t, ml, ml.header, claims), mlT, err)
 	}
 	akpWith := func(members string) string {
-		return `{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{` + members + `}}`
+		return `{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{` + members + `}}`
 	}
 	tail := func(jti string) string {
 		return `"iat":1700000000,"jti":"` + jti + `","rel":"` + rel + `"}`
@@ -412,30 +467,30 @@ func strictJSONCases(t *testing.T, c func(name, token, proof, thumbprint, err st
 	ath := `"ath":"` + athOf(shortToken) + `",`
 	return []proofCase{
 		header("duplicate header alg with another value",
-			`{"alg":"ES256","alg":"ML-DSA-65","typ":"MOQT-POP","jwk":`+mlCanonical+`}`, "dup-alg", "malformed"),
+			`{"alg":"ES256","alg":"ML-DSA-87","typ":"MOQT-POP","jwk":`+mlCanonical+`}`, "dup-alg", "malformed"),
 		header("duplicate header typ",
-			`{"alg":"ML-DSA-65","typ":"MOQT-POP","typ":"MOQT-POP","jwk":`+mlCanonical+`}`, "dup-typ", "malformed"),
+			`{"alg":"ML-DSA-87","typ":"MOQT-POP","typ":"MOQT-POP","jwk":`+mlCanonical+`}`, "dup-typ", "malformed"),
 		header("duplicate header jwk",
-			`{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-65","kty":"AKP","pub":"`+otherPub+`"},"jwk":`+mlCanonical+`}`, "dup-jwk", "malformed"),
+			`{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-87","kty":"AKP","pub":"`+otherPub+`"},"jwk":`+mlCanonical+`}`, "dup-jwk", "malformed"),
 		header("duplicate jwk member pub",
-			akpWith(`"alg":"ML-DSA-65","kty":"AKP","pub":"`+otherPub+`","pub":"`+akp.Pub+`"`), "dup-pub", "malformed"),
+			akpWith(`"alg":"ML-DSA-87","kty":"AKP","pub":"`+otherPub+`","pub":"`+akp.Pub+`"`), "dup-pub", "malformed"),
 		header("duplicate jwk member spelled with an escape",
-			akpWith(`"alg":"ML-DSA-65","kty":"AKP","p\u0075b":"`+otherPub+`","pub":"`+akp.Pub+`"`), "dup-pub-escaped", "malformed"),
+			akpWith(`"alg":"ML-DSA-87","kty":"AKP","p\u0075b":"`+otherPub+`","pub":"`+akp.Pub+`"`), "dup-pub-escaped", "malformed"),
 		header("duplicate member in an unknown header parameter",
-			`{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":[{"a":1,"a":2}]}`, "dup-later", "malformed"),
+			`{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":[{"a":1,"a":2}]}`, "dup-later", "malformed"),
 		header("header member names that differ only in case",
-			`{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-65","kty":"AKP","pub":"`+akp.Pub+`","PUB":"`+otherPub+`"},"ALG":"ES256","Typ":"MOQT"}`, "header-case", ""),
+			`{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-87","kty":"AKP","pub":"`+akp.Pub+`","PUB":"`+otherPub+`"},"ALG":"ES256","Typ":"MOQT"}`, "header-case", ""),
 		header("header is a json array",
-			`["ML-DSA-65","MOQT-POP",`+mlCanonical+`]`, "header-array", "malformed"),
+			`["ML-DSA-87","MOQT-POP",`+mlCanonical+`]`, "header-array", "malformed"),
 		header("header is null", `null`, "header-null", "malformed"),
 		header("header alg is null",
 			`{"alg":null,"typ":"MOQT-POP","jwk":`+mlCanonical+`}`, "alg-null", "malformed"),
 		header("jwk member is null",
-			akpWith(`"alg":"ML-DSA-65","crv":null,"kty":"AKP","pub":"`+akp.Pub+`"`), "crv-null", "malformed"),
+			akpWith(`"alg":"ML-DSA-87","kty":"AKP","pub":null`), "pub-null", "malformed"),
 		header("header with an unpaired surrogate escape",
-			`{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":"\ud800"}`, "header-surrogate", "malformed"),
+			`{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":"\ud800"}`, "header-surrogate", "malformed"),
 		header("header that is not utf-8",
-			`{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":"`+"\xff"+`"}`, "header-utf8", "malformed"),
+			`{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":"`+"\xff"+`"}`, "header-utf8", "malformed"),
 
 		claims("duplicate claim ath",
 			`{"ath":"`+athOf(jwsToken)+`",`+ath+tail("dup-ath"), "malformed"),
@@ -463,9 +518,9 @@ func strictJSONCases(t *testing.T, c func(name, token, proof, thumbprint, err st
 		claims("jti with an unpaired surrogate escape", `{`+ath+`"iat":1700000000,"jti":"\udc00x","rel":"`+rel+`"}`, "malformed"),
 		claims("jti with a surrogate pair", `{`+ath+`"iat":1700000000,"jti":"\ud83d\ude00-pair","rel":"`+rel+`"}`, ""),
 		header("header nested as deep as allowed",
-			`{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":`+strings.Repeat("[", 126)+strings.Repeat("]", 126)+`}`, "depth-127", ""),
+			`{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":`+strings.Repeat("[", 126)+strings.Repeat("]", 126)+`}`, "depth-127", ""),
 		header("header nested one deeper than allowed",
-			`{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":`+strings.Repeat("[", 127)+strings.Repeat("]", 127)+`}`, "depth-128", "malformed"),
+			`{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":`+mlCanonical+`,"later":`+strings.Repeat("[", 127)+strings.Repeat("]", 127)+`}`, "depth-128", "malformed"),
 		claims("claims with a number too large for a double", `{`+ath+`"later":1e400,`+tail("number-overflow"), "malformed"),
 		claims("claims with a number too small for a double", `{`+ath+`"later":1e-400,`+tail("number-underflow"), ""),
 		claims("claims that are not utf-8", `{`+ath+`"later":"`+"\xc3"+`",`+tail("claims-utf8"), "malformed"),
@@ -487,7 +542,7 @@ func byteCases(t *testing.T, c func(name, token, proof, thumbprint, err string) 
 		c("iat is negative zero", shortToken,
 			signed(ml.header, `{`+ath+`"iat":-0,"jti":"iat-negative-zero","rel":"`+rel+`"}`), mlT, "malformed"),
 		c("jwk kty spelled with a kelvin sign", shortToken,
-			signed(`{"alg":"ML-DSA-65","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-65","kty":"A`+"\u212a"+`P","pub":"`+ml.JWK().Pub+`"}}`,
+			signed(`{"alg":"ML-DSA-87","typ":"MOQT-POP","jwk":{"alg":"ML-DSA-87","kty":"A`+"\u212a"+`P","pub":"`+ml.JWK().Pub+`"}}`,
 				claimsJSON(shortToken, vectorNow, "kty-kelvin", cert)), mlT, "unsupported"),
 		equivalent,
 	}
@@ -498,77 +553,37 @@ func athOf(token string) string {
 	return b64.EncodeToString(sum[:])
 }
 
-// nonCanonical respells a 32-byte coordinate with the unused low bits of its
-// last character set: the same bytes to a lenient decoder, a second spelling
-// to a thumbprint that copied it.
-func nonCanonical(coordinate string) string {
-	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-	last := strings.IndexByte(alphabet, coordinate[len(coordinate)-1])
-	return coordinate[:len(coordinate)-1] + string(alphabet[last|0x03])
-}
-
-func derSigned(t *testing.T, key vectorKey, header string) string {
-	signed := b64.EncodeToString([]byte(header)) + "." +
-		b64.EncodeToString([]byte(claimsJSON(shortToken, vectorNow, "es256-der", certificate[:])))
-	digest := sha256.Sum256([]byte(signed))
-	private := key.prover.signer.(*ecdsa.PrivateKey)
-	der, err := private.Sign(nil, digest[:], crypto.SHA256)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return signed + "." + b64.EncodeToString(der)
-}
-
-func thumbprintCases(t *testing.T, akp JWK) []thumbprintCase {
-	var leadingZero, highBit [32]byte
-	for i := range leadingZero {
-		leadingZero[i] = 0x5A
-		highBit[i] = 0x11
-	}
-	leadingZero[0] = 0x00
-	highBit[0] = 0xFF
-
+func thumbprintCases(t *testing.T, akp JWK, mlDSA65Pub string) []thumbprintCase {
+	var zero [32]byte
 	ok := func(name string, jwk JWK) thumbprintCase {
 		thumbprint, err := jwk.Thumbprint()
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		return thumbprintCase{Name: name, JWK: jwk, Thumbprint: thumbprint}
+		return thumbprintCase{Name: name, JWK: vectorJWK{Kty: jwk.Kty, Alg: jwk.Alg, Pub: jwk.Pub}, Thumbprint: thumbprint}
 	}
-	bad := func(name string, jwk JWK) thumbprintCase {
-		_, err := jwk.Thumbprint()
+	bad := func(name string, jwk vectorJWK) thumbprintCase {
+		_, err := jwk.jwk().Thumbprint()
 		if err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
 		return thumbprintCase{Name: name, JWK: jwk, Error: Class(err)}
 	}
-
-	rfc := ok("rfc 7517 a.1 ec key", JWK{Kty: "EC", Crv: "P-256",
-		X: "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", Y: "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"})
-	if rfc.Thumbprint != "cn-I_WNMClehiVp51i_0VpOENW1upEerA8sEam5hn-s" {
-		t.Fatalf("RFC 7638 thumbprint drifted: %s", rfc.Thumbprint)
-	}
 	return []thumbprintCase{
-		rfc,
-		ok("ec coordinate whose first byte is zero", JWK{Kty: "EC", Crv: "P-256",
-			X: b64.EncodeToString(leadingZero[:]), Y: b64.EncodeToString(highBit[:])}),
-		ok("ec coordinate whose high bit is set", JWK{Kty: "EC", Crv: "P-256",
-			X: b64.EncodeToString(highBit[:]), Y: b64.EncodeToString(leadingZero[:])}),
-		ok("akp ml-dsa-65 key", akp),
-		bad("ec coordinate padded", JWK{Kty: "EC", Crv: "P-256",
-			X: "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4=", Y: "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}),
-		bad("ec coordinate 31 bytes", JWK{Kty: "EC", Crv: "P-256",
-			X: b64.EncodeToString(leadingZero[1:]), Y: b64.EncodeToString(highBit[:])}),
-		bad("ec coordinate spelled non-canonically", JWK{Kty: "EC", Crv: "P-256",
-			X: nonCanonical("MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4"), Y: "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}),
-		bad("ec on p-384", JWK{Kty: "EC", Crv: "P-384",
-			X: b64.EncodeToString(leadingZero[:]), Y: b64.EncodeToString(highBit[:])}),
-		bad("okp ed25519", JWK{Kty: "OKP", Crv: "Ed25519", X: b64.EncodeToString(leadingZero[:])}),
-		bad("akp ml-dsa-44", JWK{Kty: "AKP", Alg: "ML-DSA-44", Pub: akp.Pub}),
-		bad("akp with no alg", JWK{Kty: "AKP", Pub: akp.Pub}),
-		bad("akp pub one byte short", JWK{Kty: "AKP", Alg: "ML-DSA-65",
+		ok("akp ml-dsa-87 key", akp),
+		bad("rfc 7517 a.1 ec p-256 key, not post-quantum", vectorJWK{Kty: "EC", Crv: "P-256",
+			X: "MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4", Y: "4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM"}),
+		bad("ec p-384", vectorJWK{Kty: "EC", Crv: "P-384",
+			X: b64.EncodeToString(zero[:]), Y: b64.EncodeToString(zero[:])}),
+		bad("okp ed25519", vectorJWK{Kty: "OKP", Crv: "Ed25519", X: b64.EncodeToString(zero[:])}),
+		bad("akp ml-dsa-65", vectorJWK{Kty: "AKP", Alg: "ML-DSA-65", Pub: mlDSA65Pub}),
+		bad("akp ml-dsa-65 alg on an ml-dsa-87 key", vectorJWK{Kty: "AKP", Alg: "ML-DSA-65", Pub: akp.Pub}),
+		bad("akp ml-dsa-87 alg on an ml-dsa-65 key", vectorJWK{Kty: "AKP", Alg: "ML-DSA-87", Pub: mlDSA65Pub}),
+		bad("akp ml-dsa-44", vectorJWK{Kty: "AKP", Alg: "ML-DSA-44", Pub: akp.Pub}),
+		bad("akp with no alg", vectorJWK{Kty: "AKP", Pub: akp.Pub}),
+		bad("akp pub one byte short", vectorJWK{Kty: "AKP", Alg: "ML-DSA-87",
 			Pub: b64.EncodeToString(mustDecode(t, akp.Pub)[1:])}),
-		bad("empty", JWK{}),
+		bad("empty", vectorJWK{}),
 	}
 }
 

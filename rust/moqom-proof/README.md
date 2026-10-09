@@ -8,9 +8,9 @@ peer checks that the proof was signed by the key the token names, and spends
 its nonce.
 
 Proofs follow the shape of [RFC 9449](https://www.rfc-editor.org/rfc/rfc9449) (DPoP), with the peer's certificate in
-place of `htm` and `htu`. ML-DSA-65 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)) is the default; ES256 is
-accepted while devices holding older keys roll over. Cryptography is from
-AWS-LC through `aws-lc-rs`.
+place of `htm` and `htu`. ML-DSA-87 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)) is the only algorithm; ES256, ML-DSA-65
+and every other algorithm are refused. Cryptography is from AWS-LC through
+`aws-lc-rs`.
 
 ```rust
 use std::time::{Duration, SystemTime};
@@ -19,8 +19,8 @@ use aws_lc_rs::digest::{SHA256, digest};
 use moqom_proof::{Algorithm, Checker, Error, MemoryNonceStore, Prover, nonce};
 
 fn main() -> Result<(), Error> {
-    let device = Prover::generate(Algorithm::MlDsa65)?;
-    let token = b"eyJhbGciOiJNTC1EU0EtNjUi...";
+    let device = Prover::generate(Algorithm::MlDsa87)?;
+    let token = b"eyJhbGciOiJNTC1EU0EtODci...";
     let relay_certificate = digest(&SHA256, b"the relay's leaf certificate, DER");
     let now = SystemTime::now();
     let proof = device.prove(token, relay_certificate.as_ref(), &nonce()?, now)?;

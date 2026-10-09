@@ -4,11 +4,10 @@
 # moqom-token
 
 Mint and verify the token a MOQOM client joins a relay with. A token is a
-compact [JWS](https://www.rfc-editor.org/rfc/rfc7515), typed `MOQT`, signed with ML-DSA-65 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)). It names a
+compact [JWS](https://www.rfc-editor.org/rfc/rfc7515), typed `MOQT`, signed with ML-DSA-87 ([FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)). It names a
 tenant, a user, the device key it is bound to (`cnf.jkt`), a room and what
-the holder may do there, and it lasts at most fifteen minutes. Ed25519 keys
-still verify, so tokens signed before the move to ML-DSA keep working until
-they expire; nothing signs with Ed25519.
+the holder may do there, and it lasts at most fifteen minutes. ML-DSA-87 is
+the only algorithm a token is signed or verified with.
 
 ```rust
 use moqom_token::{Signer, Verifier};

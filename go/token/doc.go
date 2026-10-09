@@ -5,11 +5,10 @@
 // client joins a relay with.
 //
 // A token is a compact JWS (RFC 7515) over JSON claims, typed "MOQT", signed
-// with ML-DSA-65 (FIPS 204, JOSE "ML-DSA-65", JWK kty "AKP"). Ed25519 ("EdDSA")
-// keys verify and never sign, so tokens issued before the move to ML-DSA stay
-// good until they expire. The key a token names by `kid` decides the algorithm
-// it is verified with; the header's `alg` must agree and is never trusted on
-// its own.
+// with ML-DSA-87 (FIPS 204, JOSE "ML-DSA-87", JWK kty "AKP"), the only
+// algorithm a token is signed or verified with. The key a token names by `kid`
+// decides the algorithm it is verified with; the header's `alg` must agree and
+// is never trusted on its own.
 //
 // The claims carry who the holder is (`sub`), the tenant (`aud`), the device key
 // the token is bound to (`cnf.jkt`, an RFC 7638 thumbprint), what they may do in

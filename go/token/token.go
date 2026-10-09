@@ -28,6 +28,7 @@ var (
 	ErrLifetime     = errors.New("token lifetime is out of range")
 	ErrWrongIssuer  = errors.New("token was issued by another deployment")
 	ErrWrongTenant  = errors.New("token is for another tenant")
+	ErrWrongPool    = errors.New("token is for another relay pool")
 	ErrIncomplete   = errors.New("token does not name a complete identity")
 	ErrThumbprint   = errors.New("token is not bound to an RFC 7638 SHA-256 thumbprint")
 )
@@ -47,6 +48,7 @@ func Class(err error) string {
 		{ErrLifetime, "lifetime"},
 		{ErrWrongIssuer, "wrong_issuer"},
 		{ErrWrongTenant, "wrong_tenant"},
+		{ErrWrongPool, "wrong_pool"},
 		{ErrIncomplete, "incomplete"},
 		{ErrThumbprint, "thumbprint"},
 		{ErrKeySetMalformed, "set_malformed"},
@@ -79,7 +81,7 @@ const MaxLifetime = 15 * time.Minute
 const ClockSkew = 30 * time.Second
 
 // MaxTokenBytes bounds a token before anything in it is decoded. A real one is
-// about five kilobytes, nearly all of it the 3,309-byte ML-DSA-65 signature.
+// about seven kilobytes, nearly all of it the 4,627-byte ML-DSA-87 signature.
 const MaxTokenBytes = 8192
 
 // Claims is what a token asserts, in the order and spelling it has on the wire.
@@ -102,8 +104,10 @@ type Claims struct {
 	// Via is the username whose following brought the holder in. Provenance,
 	// not authorisation: it grants nothing.
 	Via string `json:"via,omitempty"`
-	// E2EE is the room's end-to-end encryption policy, for the client.
-	E2EE string `json:"e2ee,omitempty"`
+
+	// Pool is the relay pool a private tenant's token is confined to. Empty is
+	// the shared fleet. A relay admits only tokens naming its own pool.
+	Pool string `json:"pool,omitempty"`
 }
 
 // Confirmation is what the token is bound to.
@@ -173,7 +177,7 @@ func segment(value any) (string, error) {
 func signingInput(algorithm Algorithm, keyID string, claims Claims) (string, error) {
 	for _, text := range []string{
 		claims.Issuer, claims.Subject, claims.Tenant, claims.ID, claims.Confirmation.Thumbprint,
-		claims.Grant.Room, claims.Via, claims.E2EE, keyID,
+		claims.Grant.Room, claims.Via, keyID,
 	} {
 		if !utf8.ValidString(text) {
 			return "", fmt.Errorf("%w: a claim is not UTF-8", ErrMalformed)
