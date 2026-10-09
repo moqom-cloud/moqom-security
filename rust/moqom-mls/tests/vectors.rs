@@ -52,19 +52,19 @@ fn class<T>(result: &Result<T, Error>) -> &'static str {
     result.as_ref().err().map_or("", Error::class)
 }
 
-fn published_suite(v: &Value) -> CipherSuite {
-    // Suite 7 is SHA-384's: what 0xF0AA's KDF is held to.
-    if int(v, "cipher_suite") == 1 {
-        CipherSuite::X25519
-    } else {
-        CipherSuite::MLDSA
-    }
+/// The published cases in suite 5, which is SHA-512's: what 0xF0AC's KDF is
+/// held to. Suite 1's are skipped; it is an AES-128 suite, not implemented.
+fn published_cases(file: &str) -> Vec<Value> {
+    cases(file)
+        .into_iter()
+        .filter(|v| int(v, "cipher_suite") == 5)
+        .collect()
 }
 
 #[test]
 fn published_crypto_basics() {
-    for v in cases("mlswg-crypto-basics.json") {
-        let suite = published_suite(&v);
+    for v in published_cases("mlswg-crypto-basics.json") {
+        let suite = CipherSuite::MLDSA;
         let e = &v["ref_hash"];
         assert_eq!(
             suite.ref_hash(string(e, "label"), &hex(e, "value")),
@@ -97,53 +97,6 @@ fn published_crypto_basics() {
                 int(e, "length")
             ),
             Ok(hex(e, "out"))
-        );
-        if suite != CipherSuite::X25519 {
-            continue;
-        }
-        let s = &v["sign_with_label"];
-        assert!(suite.verify_with_label(
-            &hex(s, "pub"),
-            string(s, "label"),
-            &hex(s, "content"),
-            &hex(s, "signature")
-        ));
-        // Ed25519 is deterministic, so our own signature is the published one.
-        assert_eq!(
-            suite
-                .sign_with_label(&hex(s, "priv"), string(s, "label"), &hex(s, "content"))
-                .unwrap(),
-            hex(s, "signature")
-        );
-        let c = &v["encrypt_with_label"];
-        let sealed = HpkeCiphertext {
-            kem_output: hex(c, "kem_output"),
-            ciphertext: hex(c, "ciphertext"),
-        };
-        assert_eq!(
-            suite
-                .decrypt_with_label(
-                    &hex(c, "priv"),
-                    string(c, "label"),
-                    &hex(c, "context"),
-                    &sealed
-                )
-                .unwrap(),
-            hex(c, "plaintext")
-        );
-        let ours = suite
-            .encrypt_with_label(&hex(c, "pub"), string(c, "label"), &hex(c, "context"), b"x")
-            .unwrap();
-        assert_eq!(
-            suite
-                .decrypt_with_label(
-                    &hex(c, "priv"),
-                    string(c, "label"),
-                    &hex(c, "context"),
-                    &ours
-                )
-                .unwrap(),
-            b"x"
         );
     }
 }
@@ -182,24 +135,10 @@ fn secret<'a>(s: &'a EpochSecrets, key: &str) -> &'a [u8] {
 
 #[test]
 fn published_key_schedule() {
-    for v in cases("mlswg-key-schedule.json") {
-        let suite = published_suite(&v);
+    for v in published_cases("mlswg-key-schedule.json") {
+        let suite = CipherSuite::MLDSA;
         let mut init = hex(&v, "initial_init_secret");
         for (index, e) in v["epochs"].as_array().unwrap().iter().enumerate() {
-            if suite == CipherSuite::X25519 {
-                let context = GroupContext {
-                    cipher_suite: suite,
-                    group_id: hex(&v, "group_id"),
-                    epoch: index as u64,
-                    tree_hash: hex(e, "tree_hash"),
-                    confirmed_transcript_hash: hex(e, "confirmed_transcript_hash"),
-                };
-                assert_eq!(
-                    context.encode(),
-                    hex(e, "group_context"),
-                    "epoch {index}: group context"
-                );
-            }
             let psk = hex(e, "psk_secret");
             let s = EpochSecrets::derive_encoded(
                 suite,
@@ -495,7 +434,8 @@ fn audience_envelopes() {
 
 #[test]
 fn round_trip() {
-    for suite in [CipherSuite::MLDSA, CipherSuite::X25519] {
+    {
+        let suite = CipherSuite::MLDSA;
         let alice =
             Group::create(b"g", &KeyPackageBundle::generate("alice", suite).unwrap()).unwrap();
         let bob = KeyPackageBundle::generate("bob", suite).unwrap();
@@ -557,7 +497,8 @@ fn round_trip() {
 
 #[test]
 fn exporter_length_limit() {
-    for suite in [CipherSuite::MLDSA, CipherSuite::XWING, CipherSuite::X25519] {
+    {
+        let suite = CipherSuite::MLDSA;
         let group =
             Group::create(b"g", &KeyPackageBundle::generate("alice", suite).unwrap()).unwrap();
         let max = 255 * suite.hash_length();
@@ -582,7 +523,8 @@ fn exporter_length_limit() {
 
 #[test]
 fn expand_with_label_length_limit() {
-    for suite in [CipherSuite::MLDSA, CipherSuite::XWING, CipherSuite::X25519] {
+    {
+        let suite = CipherSuite::MLDSA;
         let secret = vec![1; suite.hash_length()];
         let max = 255 * suite.hash_length();
         for length in [0, max] {
@@ -641,4 +583,16 @@ fn debug_redacts_secrets() {
         }
     }
     assert!(format!("{processed:?}").contains("Advanced"));
+}
+
+#[test]
+fn other_suites_are_refused() {
+    for id in [0x0001, 0xF0A1, 0xF0AA, 0xF0AB] {
+        let suite = CipherSuite(id);
+        assert!(!suite.is_known(), "{id:#06x}");
+        assert!(
+            KeyPackageBundle::generate("alice", suite).is_err(),
+            "{id:#06x}"
+        );
+    }
 }

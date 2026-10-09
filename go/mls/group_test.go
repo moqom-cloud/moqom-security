@@ -11,7 +11,7 @@ import (
 )
 
 func TestGroupRoundTrip(t *testing.T) {
-	for _, suite := range []CipherSuite{SuiteMLDSA, SuiteXWing, SuiteX25519} {
+	for _, suite := range []CipherSuite{SuiteMLDSA} {
 		t.Run(suite.Name(), func(t *testing.T) {
 			bundle := must[*KeyPackageBundle](t)
 			group := must[*Group](t)
@@ -77,7 +77,7 @@ func TestAudienceRoundTrip(t *testing.T) {
 }
 
 func TestExporterLength(t *testing.T) {
-	for _, suite := range []CipherSuite{SuiteMLDSA, SuiteXWing, SuiteX25519} {
+	for _, suite := range []CipherSuite{SuiteMLDSA} {
 		t.Run(suite.Name(), func(t *testing.T) {
 			g := must[*Group](t)(CreateGroup([]byte("g"), must[*KeyPackageBundle](t)(GenerateKeyPackage("alice", suite))))
 			limit := 255 * suite.HashLength()
@@ -95,7 +95,7 @@ func TestExporterLength(t *testing.T) {
 }
 
 func TestExpandWithLabelLength(t *testing.T) {
-	for _, suite := range []CipherSuite{SuiteMLDSA, SuiteXWing, SuiteX25519} {
+	for _, suite := range []CipherSuite{SuiteMLDSA} {
 		t.Run(suite.Name(), func(t *testing.T) {
 			secret := bytes.Repeat([]byte{1}, suite.HashLength())
 			limit := 255 * suite.HashLength()
@@ -122,5 +122,16 @@ func TestClass(t *testing.T) {
 	}
 	if Class(nil) != "" || Class(errors.New("other")) != "" {
 		t.Error("an error outside every class has one")
+	}
+}
+
+func TestOtherSuitesRefused(t *testing.T) {
+	for _, suite := range []CipherSuite{0x0001, 0xF0A1, 0xF0AA, 0xF0AB} {
+		if suite.Known() {
+			t.Errorf("%#04x is known", uint16(suite))
+		}
+		if _, err := GenerateKeyPackage("alice", suite); !errors.Is(err, ErrUnsupported) {
+			t.Errorf("%#04x: %v", uint16(suite), err)
+		}
 	}
 }

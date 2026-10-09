@@ -12,62 +12,45 @@ use crate::hpke::{Aead, Hpke, Kdf, Kem};
 pub struct CipherSuite(pub u16);
 
 impl CipherSuite {
-    /// MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519, RFC 9420's mandatory
-    /// suite, kept for groups founded in it.
-    pub const X25519: Self = Self(0x0001);
-    /// MLS_128_MLKEM768X25519_AES128GCM_SHA256_Ed25519, draft-ietf-mls-pq-ciphersuites'
-    /// first suite (HPKE KEM 0x647a, X-Wing), private-use until IANA assigns
-    /// the draft's value.
-    pub const XWING: Self = Self(0xF0A1);
-    /// MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65, the draft's TBD10: HPKE KEM
-    /// 0x0041 (pure ML-KEM-768), HKDF-SHA384, AES-256-GCM and ML-DSA-65
-    /// signatures (pure, empty context). Private-use until IANA assigns it.
-    pub const MLDSA: Self = Self(0xF0AA);
-    /// The suite every new group is founded in.
+    /// MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87, draft-ietf-mls-pq-ciphersuites'
+    /// category-5 suite: HPKE KEM 0x0042 (pure ML-KEM-1024), HKDF-SHA512 (HPKE
+    /// KDF 0x0003), AES-256-GCM, SHA-512 and ML-DSA-87 signatures (pure, empty
+    /// context). Private-use (RFC 9420 §17.1) until IANA assigns it.
+    pub const MLDSA: Self = Self(0xF0AC);
+    /// The suite every group is founded in, and the only one implemented. The
+    /// AES-128 suites (RFC 9420's 0x0001 and the draft's X-Wing, 0xF0A1) and
+    /// MOQOM's earlier ML-KEM suites (0xF0AA, 0xF0AB) are refused as
+    /// unsupported.
     pub const FOUNDING: Self = Self::MLDSA;
 
-    const ML_DSA_65_PUBLIC_KEY_LENGTH: usize = 1952;
-    const ML_DSA_65_SIGNATURE_LENGTH: usize = 3309;
+    const ML_DSA_87_PUBLIC_KEY_LENGTH: usize = 2592;
+    const ML_DSA_87_SIGNATURE_LENGTH: usize = 4627;
 
     /// Whether the suite is one this crate implements.
     #[must_use]
     pub fn is_known(self) -> bool {
-        matches!(self, Self::X25519 | Self::XWING | Self::MLDSA)
+        self == Self::MLDSA
     }
 
     /// The suite's registered name.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
-            Self::X25519 => "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519",
-            Self::XWING => "MLS_128_MLKEM768X25519_AES128GCM_SHA256_Ed25519",
-            Self::MLDSA => "MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65",
+            Self::MLDSA => "MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87",
             _ => "unknown",
         }
     }
 
     pub(crate) fn kdf(self) -> Kdf {
-        if self == Self::MLDSA {
-            Kdf::Sha384
-        } else {
-            Kdf::Sha256
-        }
+        Kdf::Sha512
     }
 
     pub(crate) fn aead(self) -> Aead {
-        if self == Self::MLDSA {
-            Aead::Aes256Gcm
-        } else {
-            Aead::Aes128Gcm
-        }
+        Aead::Aes256Gcm
     }
 
     fn kem(self) -> Kem {
-        match self {
-            Self::X25519 => Kem::X25519,
-            Self::XWING => Kem::XWing,
-            _ => Kem::MlKem768,
-        }
+        Kem::MlKem1024
     }
 
     fn hpke(self) -> Result<Hpke> {
@@ -81,7 +64,7 @@ impl CipherSuite {
         })
     }
 
-    /// KDF.Nh: 48 for SHA-384, 32 for SHA-256.
+    /// KDF.Nh: 64, for SHA-512.
     #[must_use]
     pub fn hash_length(self) -> usize {
         self.kdf().length()
@@ -99,14 +82,10 @@ impl CipherSuite {
         self.kem().encapsulation_length()
     }
 
-    /// A signature public key's length: 1,952 for ML-DSA-65, 32 for Ed25519.
+    /// A signature public key's length: 2,592, for ML-DSA-87.
     #[must_use]
     pub fn signature_key_length(self) -> usize {
-        if self == Self::MLDSA {
-            Self::ML_DSA_65_PUBLIC_KEY_LENGTH
-        } else {
-            32
-        }
+        Self::ML_DSA_87_PUBLIC_KEY_LENGTH
     }
 
     pub(crate) fn hash(self, data: &[u8]) -> Vec<u8> {
@@ -187,8 +166,8 @@ impl CipherSuite {
         self.hash(&input.into_bytes())
     }
 
-    /// A fresh signature key: the private half as a 32-byte ML-DSA-65 seed
-    /// (FIPS 204's xi) or Ed25519 seed, and the public half as it travels.
+    /// A fresh signature key: the private half as a 32-byte ML-DSA-87 seed
+    /// (FIPS 204's xi), and the public half as it travels.
     ///
     /// # Errors
     /// [`Error::CryptoFailure`] if the key cannot be made.
@@ -199,15 +178,9 @@ impl CipherSuite {
     }
 
     pub(crate) fn signature_public_key(self, private: &[u8]) -> Result<Vec<u8>> {
-        if self == Self::MLDSA {
-            let key = signature::PqdsaKeyPair::from_seed(&signature::ML_DSA_65_SIGNING, private)
-                .map_err(|_| Error::CryptoFailure)?;
-            Ok(key.public_key().as_ref().to_vec())
-        } else {
-            let key = signature::Ed25519KeyPair::from_seed_unchecked(private)
-                .map_err(|_| Error::CryptoFailure)?;
-            Ok(key.public_key().as_ref().to_vec())
-        }
+        let key = signature::PqdsaKeyPair::from_seed(&signature::ML_DSA_87_SIGNING, private)
+            .map_err(|_| Error::CryptoFailure)?;
+        Ok(key.public_key().as_ref().to_vec())
     }
 
     /// SignWithLabel, RFC 9420 §5.1.2, with a private key as
@@ -217,20 +190,14 @@ impl CipherSuite {
     /// [`Error::CryptoFailure`] if the key is not one or signing fails.
     pub fn sign_with_label(self, private: &[u8], label: &str, content: &[u8]) -> Result<Vec<u8>> {
         let message = sign_content(label, content);
-        if self == Self::MLDSA {
-            let key = signature::PqdsaKeyPair::from_seed(&signature::ML_DSA_65_SIGNING, private)
-                .map_err(|_| Error::CryptoFailure)?;
-            let mut out = vec![0; Self::ML_DSA_65_SIGNATURE_LENGTH];
-            let length = key
-                .sign(&message, &mut out)
-                .map_err(|_| Error::CryptoFailure)?;
-            out.truncate(length);
-            Ok(out)
-        } else {
-            let key = signature::Ed25519KeyPair::from_seed_unchecked(private)
-                .map_err(|_| Error::CryptoFailure)?;
-            Ok(key.sign(&message).as_ref().to_vec())
-        }
+        let key = signature::PqdsaKeyPair::from_seed(&signature::ML_DSA_87_SIGNING, private)
+            .map_err(|_| Error::CryptoFailure)?;
+        let mut out = vec![0; Self::ML_DSA_87_SIGNATURE_LENGTH];
+        let length = key
+            .sign(&message, &mut out)
+            .map_err(|_| Error::CryptoFailure)?;
+        out.truncate(length);
+        Ok(out)
     }
 
     /// VerifyWithLabel, RFC 9420 §5.1.2.
@@ -246,20 +213,14 @@ impl CipherSuite {
             return false;
         }
         let message = sign_content(label, content);
-        let algorithm: &'static dyn signature::VerificationAlgorithm = if self == Self::MLDSA {
-            &signature::ML_DSA_65
-        } else {
-            &signature::ED25519
-        };
-        signature::UnparsedPublicKey::new(algorithm, public)
+        signature::UnparsedPublicKey::new(&signature::ML_DSA_87, public)
             .verify(&message, signature)
             .is_ok()
     }
 
     /// A fresh KEM key pair: the private half as RFC 9180's
-    /// SerializePrivateKey gives it (ML-KEM-768's 64-byte seed d || z,
-    /// X-Wing's 32-byte seed, or the X25519 scalar) and the public half as it
-    /// travels.
+    /// SerializePrivateKey gives it (ML-KEM-1024's 64-byte seed d || z) and the
+    /// public half as it travels.
     ///
     /// # Errors
     /// [`Error::Unsupported`] for a suite not implemented.
@@ -280,9 +241,8 @@ impl CipherSuite {
         self.hpke()?.kem.public_key(private)
     }
 
-    /// Whether a key is the suite's KEM's: the right length and, for
-    /// ML-KEM-768 alone or as X-Wing's first half, one FIPS 203's
-    /// encapsulation key check accepts.
+    /// Whether a key is the suite's KEM's: the right length, and one FIPS
+    /// 203's encapsulation key check accepts.
     pub(crate) fn is_valid_public_key(self, public: &[u8]) -> bool {
         self.kem().is_valid_public_key(public)
     }

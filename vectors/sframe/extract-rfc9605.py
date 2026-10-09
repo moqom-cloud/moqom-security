@@ -13,9 +13,10 @@ import sys
 
 SOURCE = "https://www.rfc-editor.org/rfc/rfc9605.txt, Appendix C"
 
-# The AES-CTR + HMAC suites are not implemented in any language; see docs/moqom-sframe.md.
-IMPLEMENTED = {0x0004, 0x0005}
+# Only AES-256-GCM is implemented in any language; see docs/moqom-sframe.md.
+IMPLEMENTED = {0x0005}
 SKIP = "AES-CTR + HMAC suites are not implemented: every target platform has hardware AES-GCM"
+SKIP_AES128 = "AES-128-GCM is refused: MOQOM uses AES-256-GCM only"
 
 
 def sections(text):
@@ -104,7 +105,9 @@ def main():
             "sframe_key", "sframe_salt", "metadata", "nonce", "aad", "pt", "ct",
         ):
             case[field + "_hex"] = record[field]
-        if suite not in IMPLEMENTED:
+        if suite == 0x0004:
+            case["skip"] = SKIP_AES128
+        elif suite not in IMPLEMENTED:
             case["skip"] = SKIP
         cases.append(case)
 

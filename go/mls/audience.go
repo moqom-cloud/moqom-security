@@ -4,19 +4,19 @@
 package mls
 
 // Sender keys: how a viewer in a large broadcast decrypts without being in the
-// group. Each viewer makes an ML-KEM-768 key pair and hands the public half to
+// group. Each viewer makes an ML-KEM-1024 key pair and hands the public half to
 // the group's committer, which seals each epoch's SFrame base key to it. From
 // the base key and the key ID in a frame the viewer derives any publisher's
 // key exactly as a member does (RFC 9605 §5.2).
 
-// AudienceSuite is the suite envelopes are sealed in. Viewers' keys are
-// ML-KEM-768 whatever suite the group is in.
+// AudienceSuite is the suite envelopes are sealed in, the group's: viewers'
+// keys are ML-KEM-1024, like members' are.
 const AudienceSuite = SuiteMLDSA
 
 const audienceLabel = "MOQOM audience key"
 
 // AudienceKeyLength is a viewer's public key length.
-const AudienceKeyLength = 1184
+const AudienceKeyLength = 1568
 
 func audienceContext(groupID []byte, epoch uint64) []byte {
 	var w writer
@@ -26,7 +26,7 @@ func audienceContext(groupID []byte, epoch uint64) []byte {
 }
 
 // GenerateAudienceKeyPair is a viewer's key pair: the private half as a
-// 64-byte ML-KEM-768 seed, and the public half it hands out.
+// 64-byte ML-KEM-1024 seed, and the public half it hands out.
 func GenerateAudienceKeyPair() (private, public []byte, err error) {
 	return AudienceSuite.GenerateKeyPair()
 }

@@ -303,9 +303,6 @@ enum SFrameVectorGenerator {
                 error: "invalid_metadata"
             )
 
-            let other: SFrameCipherSuite = suite == .aes256GcmSha512 ? .aes128GcmSha256 : .aes256GcmSha512
-            let otherKey = SFrameKey(keyID: kid, uncheckedBaseKey: baseKey(suite), suite: other)
-            add("sealed-under-other-suite", try sealed(otherKey, counter: 0x4567, plaintext, keyframe), error: "authentication_failure")
             let strangerKey = try SFrameKey(keyID: kid, baseKey: Data(repeating: 0xEE, count: suite.keyLength), suite: suite)
             add("sealed-under-other-base-key", try sealed(strangerKey, counter: 0x4567, plaintext, keyframe), error: "authentication_failure")
 

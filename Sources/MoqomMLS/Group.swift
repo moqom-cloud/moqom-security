@@ -41,25 +41,28 @@
 //
 // A group has one suite for its whole life, fixed when it is founded and
 // carried in its GroupContext; new groups use
-// MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65 (see `CipherSuite.swift`), and
+// MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87 (see `CipherSuite.swift`), and
 // no other. Every key package names its suite, a commit refuses to add a
 // package in another, and a joiner refuses a Welcome whose group is in
 // another. There is no migrating a group between suites: a room that should
 // change suite founds a new group.
 //
-// ML-KEM-768 because a commit secret or joiner secret recorded today is
-// otherwise only as safe as X25519, and everything later in the epoch, SFrame
-// keys included, is derived from those secrets. ML-DSA-65 because the
-// signatures are what say which member sent a commit and who is in the group:
-// classical signatures would let whoever can break them later forge history,
+// ML-KEM because a commit secret or joiner secret recorded today is otherwise
+// only as safe as X25519, and everything later in the epoch, SFrame keys
+// included, is derived from those secrets; ML-KEM-1024 because those secrets
+// have to stay secret for as long as a recording is worth decrypting. ML-DSA
+// because the signatures are what say which member sent a commit and who is
+// in the group: classical signatures would let whoever can break them later
+// forge history,
 // and, while a call is live, would be the one part of the group a quantum
-// attacker could impersonate.
+// attacker could impersonate; ML-DSA-87 so that they are as strong as the
+// key encapsulation, NIST category 5.
 //
 // # Why software keys, and not the Secure Enclave
 //
 // The MLS signature key signs every commit and GroupInfo this member makes and
-// is thrown away with the session, so it is a CryptoKit software key (ML-DSA-65
-// for new groups, Ed25519 in the older suites), not the enclave key, which is
+// is thrown away with the session, so it is a CryptoKit software ML-DSA-87
+// key, not the enclave key, which is
 // the device's one long-lived identity. Binding the two is the delivery
 // service's job instead:
 // it accepts a key package only from a token whose subject and device are the
@@ -78,7 +81,7 @@
 //   commits; ``MLSGroup/commit(adding:removing:)`` with nothing to add or
 //   remove is how a member rotates it.
 // - Commits and group information are signed by the committer's signature key
-//   (ML-DSA-65 in new groups) and bound to the epoch's GroupContext, and a confirmation tag proves every
+//   (ML-DSA-87) and bound to the epoch's GroupContext, and a confirmation tag proves every
 //   member derived the same epoch.
 //
 // What it does not guarantee: that the identity in a key package belongs to

@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use aws_lc_rs::aead::{AES_128_GCM, AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
-use aws_lc_rs::hkdf::{self, HKDF_SHA256, HKDF_SHA512, KeyType, Salt};
+use aws_lc_rs::aead::{AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
+use aws_lc_rs::hkdf::{self, HKDF_SHA512, KeyType, Salt};
 
 use crate::{CipherSuite, Error};
 
@@ -45,11 +45,8 @@ pub(crate) fn label(prefix: &str, key_id: u64, suite: CipherSuite) -> Vec<u8> {
 }
 
 fn extract(base_key: &[u8], suite: CipherSuite) -> hkdf::Prk {
-    let algorithm = match suite {
-        CipherSuite::Aes128GcmSha256 => HKDF_SHA256,
-        CipherSuite::Aes256GcmSha512 => HKDF_SHA512,
-    };
-    Salt::new(algorithm, &[]).extract(base_key)
+    let CipherSuite::Aes256GcmSha512 = suite;
+    Salt::new(HKDF_SHA512, &[]).extract(base_key)
 }
 
 fn expand(secret: &hkdf::Prk, info: &[u8], out: &mut [u8]) {
@@ -91,10 +88,8 @@ impl Key {
             &label("SFrame 1.0 Secret salt ", key_id, suite),
             &mut salt,
         );
-        let algorithm = match suite {
-            CipherSuite::Aes128GcmSha256 => &AES_128_GCM,
-            CipherSuite::Aes256GcmSha512 => &AES_256_GCM,
-        };
+        let CipherSuite::Aes256GcmSha512 = suite;
+        let algorithm = &AES_256_GCM;
         let aead = Arc::new(LessSafeKey::new(
             UnboundKey::new(algorithm, &raw).expect("derived key has the suite's length"),
         ));

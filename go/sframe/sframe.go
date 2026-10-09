@@ -7,7 +7,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hkdf"
-	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
 	"hash"
@@ -18,40 +17,30 @@ import (
 // CipherSuite is an RFC 9605 §8.1 cipher suite.
 type CipherSuite uint16
 
-const (
-	// AES128GCMSHA256 is AES-128-GCM with SHA-256. 16-byte tag.
-	AES128GCMSHA256 CipherSuite = 0x0004
-	// AES256GCMSHA512 is AES-256-GCM with SHA-512. 16-byte tag. The default.
-	AES256GCMSHA512 CipherSuite = 0x0005
+// AES256GCMSHA512 is AES-256-GCM with SHA-512, 16-byte tag: the only suite.
+// AES-128-GCM (0x0004) is deliberately absent, so a peer or object naming it is
+// refused rather than negotiated down to.
+const AES256GCMSHA512 CipherSuite = 0x0005
 
-	// DefaultCipherSuite is the suite Swift and Rust use when none is given.
-	DefaultCipherSuite = AES256GCMSHA512
-)
+// DefaultCipherSuite is the suite Swift and Rust use when none is given.
+const DefaultCipherSuite = AES256GCMSHA512
 
 // KeyLength is the AEAD key length, which is also the length of an
 // MLS-exported base key. Zero for an unsupported suite.
 func (s CipherSuite) KeyLength() int {
-	switch s {
-	case AES128GCMSHA256:
-		return 16
-	case AES256GCMSHA512:
+	if s == AES256GCMSHA512 {
 		return 32
 	}
 	return 0
 }
 
-// NonceLength is 12 for both suites, as GCM wants.
+// NonceLength is 12, as GCM wants.
 func (CipherSuite) NonceLength() int { return 12 }
 
-// TagLength is 16 for both suites.
+// TagLength is 16.
 func (CipherSuite) TagLength() int { return 16 }
 
-func (s CipherSuite) hash() func() hash.Hash {
-	if s == AES128GCMSHA256 {
-		return sha256.New
-	}
-	return sha512.New
-}
+func (CipherSuite) hash() func() hash.Hash { return sha512.New }
 
 // Header is the KID and CTR that precede an SFrame ciphertext.
 type Header struct {

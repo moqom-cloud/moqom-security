@@ -104,7 +104,7 @@ func ExampleParseKeyPackage() {
 	_, err = mls.ParseKeyPackage(data)
 	fmt.Println(errors.Is(err, mls.ErrBadSignature))
 	// Output:
-	// bob/laptop MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65 (0xf0aa)
+	// bob/laptop MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87 (0xf0ac)
 	// true
 }
 
@@ -144,7 +144,7 @@ func ExampleGroup_Process() {
 }
 
 // A broadcast viewer is not a member. The committer seals each epoch's SFrame
-// base key to the viewer's ML-KEM-768 key, for one group and epoch only.
+// base key to the viewer's ML-KEM-1024 key, for one group and epoch only.
 func ExampleSealAudience() {
 	groupID := []byte("acme/room-42")
 	base := make([]byte, 32) // from Group.Exporter(SFrameExporterLabel, nil, 32)

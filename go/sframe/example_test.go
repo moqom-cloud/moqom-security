@@ -79,7 +79,7 @@ func Example() {
 // The replay window accepts objects that arrive out of order, up to 1,023
 // counters behind the highest seen with the default window of 1,024.
 func Example_replayWindow() {
-	ctx, err := sframe.NewContext(sframe.AES128GCMSHA256, 1, bytes.Repeat([]byte{0x2A}, 16))
+	ctx, err := sframe.NewContext(sframe.AES256GCMSHA512, 1, bytes.Repeat([]byte{0x2A}, 32))
 	if err != nil {
 		panic(err)
 	}

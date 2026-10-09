@@ -56,7 +56,7 @@ struct ExamplesTests {
     @Test("the replay window accepts reordering up to 1,023 behind")
     func replayWindow() throws {
         let context = try SFrameContext(
-            suite: .aes128GcmSha256, keyID: 1, baseKey: Data(repeating: 0x2A, count: 16)
+            suite: .aes256GcmSha512, keyID: 1, baseKey: Data(repeating: 0x2A, count: 32)
         )
         let track = SFrameTrack(namespace: ["moqom", "demo", "alice"], name: "audio")
         let metadata = SFrameMetadata(track: track, group: 0, object: 0, priority: 128)

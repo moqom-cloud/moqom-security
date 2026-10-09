@@ -60,7 +60,7 @@ func TestNoKeyRefuses(t *testing.T) {
 	if _, err := s.ProtectRaw([]byte{1}, nil); !errors.Is(err, ErrNoKey) {
 		t.Fatal(err)
 	}
-	key, _ := NewKey(2, bytes.Repeat([]byte{1}, 16), AES128GCMSHA256)
+	key, _ := NewKey(2, bytes.Repeat([]byte{1}, 32), AES256GCMSHA512)
 	s.Rekey(key)
 	if _, err := s.ProtectRaw([]byte{1}, nil); err != nil {
 		t.Fatal(err)
@@ -135,8 +135,19 @@ func TestUnsupportedSuite(t *testing.T) {
 	}
 }
 
+func TestAES128Refused(t *testing.T) {
+	for _, n := range []int{16, 32} {
+		if _, err := NewContext(0x0004, 1, make([]byte, n)); !errors.Is(err, ErrUnsupportedSuite) {
+			t.Fatal(err)
+		}
+		if _, err := NewKey(1, make([]byte, n), 0x0004); !errors.Is(err, ErrUnsupportedSuite) {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestBaseKeyLength(t *testing.T) {
-	for _, suite := range []CipherSuite{AES128GCMSHA256, AES256GCMSHA512} {
+	for _, suite := range []CipherSuite{AES256GCMSHA512} {
 		for _, n := range []int{0, 16, 32, 48} {
 			_, err := NewKey(1, make([]byte, n), suite)
 			_, cerr := NewContext(suite, 1, make([]byte, n))

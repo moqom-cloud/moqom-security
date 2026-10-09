@@ -119,8 +119,8 @@ struct MLSGroupTests {
         #expect(aliceNext.epoch == alice.epoch + 1)
         #expect(aliceNext.memberCount == alice.memberCount)
         #expect(aliceNext.epochAuthenticator == update.next.epochAuthenticator)
-        #expect(aliceNext.sframeKey(for: 0, suite: .aes128GcmSha256).keyID
-            != alice.sframeKey(for: 0, suite: .aes128GcmSha256).keyID)
+        #expect(aliceNext.sframeKey(for: 0, suite: .aes256GcmSha512).keyID
+            != alice.sframeKey(for: 0, suite: .aes256GcmSha512).keyID)
     }
 
     @Test("a commit for an epoch already left is refused as stale", arguments: MLSCipherSuite.supported)

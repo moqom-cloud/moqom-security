@@ -9,9 +9,10 @@
 // the AEAD tag in the shape of draft-ietf-moq-secure-objects. A relay can read
 // and forward them and cannot change any of them.
 //
-// Only the AES-GCM suites (0x0004 and 0x0005) are implemented. Every platform
-// MOQOM targets has hardware AES-GCM, and the AES-CTR + HMAC suites would be a
-// composition of our own.
+// Only AES-256-GCM (0x0005) is implemented. AES-128-GCM (0x0004) is refused so
+// no peer or object can name a 128-bit key. Every platform MOQOM targets has
+// hardware AES-GCM, and the AES-CTR + HMAC suites would be a composition of our
+// own.
 //
 // Context is the simple API: Seal and Open under one key. Sender and Receiver
 // are the pieces a room uses, a sender per media stream and a receiver holding

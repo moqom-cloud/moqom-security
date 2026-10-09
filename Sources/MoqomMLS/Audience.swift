@@ -6,7 +6,7 @@
 //
 // A room's MLS group holds the devices that may publish. A viewer is not
 // added: at broadcast scale every commit would carry a ciphertext per viewer
-// and every arrival would be a commit. Instead each viewer makes an ML-KEM-768
+// and every arrival would be a commit. Instead each viewer makes an ML-KEM-1024
 // key pair, keeps the private half in memory, and hands the public half to the
 // group's committer, which seals each epoch's SFrame base key to it with
 // `EncryptWithLabel`. From the base key and the key ID in a frame the viewer
@@ -22,16 +22,15 @@ import Foundation
 ///
 /// The envelope is an `HPKECiphertext`, sealed with
 /// `EncryptWithLabel(pk, "MOQOM audience key", vector(group_id) || uint64(epoch), base_key)`
-/// in `MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65`, so the group and epoch it is
+/// in `MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87`, so the group and epoch it is
 /// for are bound into it.
 public enum MLSAudience {
-    /// Viewers' keys are ML-KEM-768 whatever suite the group is in, so the
-    /// audience is post-quantum even in a group founded in an older suite.
-    public static let suite = MLSCipherSuite.mls192MLKEM768MLDSA65
+    /// The group's suite: viewers' keys are ML-KEM-1024, like members' are.
+    public static let suite = MLSCipherSuite.mls256MLKEM1024MLDSA87
     static let label = "MOQOM audience key"
 
-    /// A viewer's key pair: the private half as a 64-byte ML-KEM-768 seed,
-    /// and the 1,184-byte public half it hands out.
+    /// A viewer's key pair: the private half as a 64-byte ML-KEM-1024 seed,
+    /// and the 1,568-byte public half it hands out.
     public static func generateKeyPair() throws(MLSError) -> (privateKey: Data, publicKey: Data) {
         try suite.generateKeyPair()
     }

@@ -81,7 +81,7 @@
 //! use moqom_sframe::{CipherSuite, Context, Error, Metadata, Track};
 //!
 //! # fn main() -> Result<(), Error> {
-//! let context = Context::new(CipherSuite::Aes128GcmSha256, 1, &[0x2a; 16])?;
+//! let context = Context::new(CipherSuite::Aes256GcmSha512, 1, &[0x2a; 32])?;
 //! let track = Track::new(["moqom", "demo", "alice"], "audio");
 //! let metadata = Metadata { track, group: 0, object: 0, priority: 128, properties: vec![] };
 //! let objects = (0..=1024u32)
@@ -110,36 +110,34 @@ pub use key::Key;
 pub use metadata::{Metadata, Property, PropertyValue, Track};
 pub use protect::{DEFAULT_REPLAY_WINDOW, Receiver, Sender};
 
-/// An RFC 9605 §8.1 cipher suite.
+/// An RFC 9605 §8.1 cipher suite: AES-256-GCM, and nothing else.
+///
+/// AES-128-GCM (0x0004) is deliberately absent, so an object or a peer that
+/// names it is refused rather than negotiated down to.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u16)]
 pub enum CipherSuite {
-    /// AES-128-GCM with SHA-256. 16-byte tag.
-    Aes128GcmSha256 = 0x0004,
-    /// AES-256-GCM with SHA-512. 16-byte tag. The default.
+    /// AES-256-GCM with SHA-512. 16-byte tag.
     #[default]
     Aes256GcmSha512 = 0x0005,
 }
 
 impl CipherSuite {
-    pub const ALL: [Self; 2] = [Self::Aes128GcmSha256, Self::Aes256GcmSha512];
+    pub const ALL: [Self; 1] = [Self::Aes256GcmSha512];
 
     /// AEAD key length, which is also the length of an MLS-exported base key.
     #[must_use]
     pub const fn key_length(self) -> usize {
-        match self {
-            Self::Aes128GcmSha256 => 16,
-            Self::Aes256GcmSha512 => 32,
-        }
+        32
     }
 
-    /// 12 for both suites, as GCM wants.
+    /// 12, as GCM wants.
     #[must_use]
     pub const fn nonce_length(self) -> usize {
         12
     }
 
-    /// 16 for both suites.
+    /// 16.
     #[must_use]
     pub const fn tag_length(self) -> usize {
         16
@@ -151,7 +149,6 @@ impl TryFrom<u16> for CipherSuite {
 
     fn try_from(value: u16) -> Result<Self, Error> {
         match value {
-            0x0004 => Ok(Self::Aes128GcmSha256),
             0x0005 => Ok(Self::Aes256GcmSha512),
             other => Err(Error::UnsupportedSuite(other)),
         }

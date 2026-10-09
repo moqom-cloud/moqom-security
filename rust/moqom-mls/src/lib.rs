@@ -5,10 +5,8 @@
 //! with the Swift (`MoqomMLS`) and Go (`go/mls`) implementations and held to
 //! the same vectors in `vectors/mls`.
 //!
-//! - Suites: [`CipherSuite::MLDSA`] (HPKE ML-KEM-768, HKDF-SHA384,
-//!   AES-256-GCM, ML-DSA-65), which every new group is founded in,
-//!   [`CipherSuite::XWING`] (HPKE X-Wing, HKDF-SHA256, AES-128-GCM, Ed25519)
-//!   and [`CipherSuite::X25519`].
+//! - Suite: [`CipherSuite::MLDSA`] (HPKE ML-KEM-1024, HKDF-SHA512,
+//!   AES-256-GCM, ML-DSA-87), the only one. The AES-128 suites are refused.
 //! - Key packages: [`KeyPackageBundle::generate`], [`KeyPackage::parse`].
 //! - Groups: [`Group::create`], [`Group::commit`], [`Group::join`],
 //!   [`Group::process`], [`Group::exporter`], [`Group::epoch_authenticator`].
@@ -80,7 +78,7 @@
 //! ```
 //!
 //! A broadcast viewer is not a member. The committer seals each epoch's SFrame
-//! base key to the viewer's ML-KEM-768 key, for one group and epoch only:
+//! base key to the viewer's ML-KEM-1024 key, for one group and epoch only:
 //!
 //! ```
 //! use moqom_mls::{Error, audience};
@@ -105,7 +103,6 @@ mod key_package;
 mod key_schedule;
 mod mlkem;
 mod suite;
-mod xwing;
 
 pub use error::{Error, Result};
 pub use group::{CommitMessage, Group, Leaf, PendingCommit, Processed, Welcome};

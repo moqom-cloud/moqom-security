@@ -48,10 +48,10 @@ struct RFC9605VectorTests {
         }
     }
 
-    @Test("C.3 SFrame encryption and decryption, AES-GCM suites")
+    @Test("C.3 SFrame encryption and decryption, AES-256-GCM")
     func sframe() throws {
         let vectors = cases.filter { $0.kind == "sframe" && $0.skip == nil }
-        #expect(vectors.map(\.cipher_suite) == [0x0004, 0x0005])
+        #expect(vectors.map(\.cipher_suite) == [0x0005])
         for vector in vectors {
             let suite = try suite(try #require(vector.cipher_suite))
             let kid = try #require(vector.kid), ctr = try #require(vector.ctr)
@@ -80,19 +80,23 @@ struct RFC9605VectorTests {
     func secret() throws {
         for vector in cases where vector.kind == "sframe" && vector.skip == nil {
             let base = SymmetricKey(data: hex(try #require(vector.base_key_hex)))
-            let secret: Data = switch try suite(try #require(vector.cipher_suite)) {
-            case .aes128GcmSha256: HKDF<SHA256>.extract(inputKeyMaterial: base, salt: Data()).withUnsafeBytes { Data($0) }
-            case .aes256GcmSha512: HKDF<SHA512>.extract(inputKeyMaterial: base, salt: Data()).withUnsafeBytes { Data($0) }
-            }
+            #expect(try suite(try #require(vector.cipher_suite)) == .aes256GcmSha512)
+            let secret = HKDF<SHA512>.extract(inputKeyMaterial: base, salt: Data()).withUnsafeBytes { Data($0) }
             #expect(secret.hexString == vector.sframe_secret_hex)
         }
     }
 
-    @Test("every skipped case is an AES-CTR + HMAC suite")
+    @Test("every skipped case is AES-CTR + HMAC or the refused AES-128-GCM")
     func skipped() {
         let skipped = cases.filter { $0.skip != nil }
-        #expect(skipped.count == 6)
-        #expect(skipped.allSatisfy { [1, 2, 3].contains($0.cipher_suite ?? 0) })
+        #expect(skipped.count == 7)
+        #expect(skipped.allSatisfy { [1, 2, 3, 4].contains($0.cipher_suite ?? 0) })
+    }
+
+    @Test("AES-128-GCM is refused, not negotiated down to")
+    func aes128Refused() {
+        #expect(SFrameCipherSuite(rawValue: 0x0004) == nil)
+        #expect(SFrameCipherSuite.allCases == [.aes256GcmSha512])
     }
 }
 

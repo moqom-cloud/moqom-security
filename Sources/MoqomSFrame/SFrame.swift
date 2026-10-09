@@ -12,7 +12,8 @@
 //
 // Two notes on what is implemented and what is not.
 //
-// Only the AES-GCM suites are here (0x0004 and 0x0005). The AES-CTR + HMAC
+// Only AES-256-GCM is here (0x0005). AES-128-GCM (0x0004) is refused so no
+// peer or object can name a 128-bit key. The AES-CTR + HMAC
 // suites in the RFC exist for hardware that has AES-CTR and not GCM, and for
 // the truncated-tag variants that save bytes on very small audio packets. Every
 // platform MOQOM targets has hardware GCM through CryptoKit, and rolling our
@@ -28,12 +29,12 @@
 import CryptoKit
 import Foundation
 
-/// The AEAD and hash a context uses.
+/// The AEAD and hash a context uses: AES-256-GCM, and nothing else.
+///
+/// RFC 9605's AES-128-GCM suite (0x0004) is deliberately absent, so an object
+/// or a peer that names it is refused rather than negotiated down to.
 public enum SFrameCipherSuite: UInt16, Hashable, Sendable, CaseIterable {
-    /// AES-128-GCM with SHA-256. 16-byte tag.
-    case aes128GcmSha256 = 0x0004
-
-    /// AES-256-GCM with SHA-512. 16-byte tag. The default.
+    /// AES-256-GCM with SHA-512. 16-byte tag.
     ///
     /// The larger key costs nothing measurable on hardware AES and removes a
     /// question nobody wants to answer later about multi-user key separation at
@@ -41,14 +42,9 @@ public enum SFrameCipherSuite: UInt16, Hashable, Sendable, CaseIterable {
     case aes256GcmSha512 = 0x0005
 
     /// Key length in bytes, which is also the length of an MLS-exported base key.
-    public var keyLength: Int {
-        switch self {
-        case .aes128GcmSha256: 16
-        case .aes256GcmSha512: 32
-        }
-    }
+    public var keyLength: Int { 32 }
 
-    /// Nonce length in bytes. 12 for both, as GCM wants.
+    /// Nonce length in bytes, as GCM wants.
     public var nonceLength: Int { 12 }
 
     /// Authentication tag length in bytes.
@@ -265,28 +261,15 @@ public struct SFrameKey: Sendable {
         let keyLabel = Self.label("SFrame 1.0 Secret key ", keyID: keyID, suite: suite)
         let saltLabel = Self.label("SFrame 1.0 Secret salt ", keyID: keyID, suite: suite)
 
-        switch suite {
-        case .aes128GcmSha256:
-            let secret = HKDF<SHA256>.extract(
-                inputKeyMaterial: SymmetricKey(data: baseKey), salt: Data()
-            )
-            key = HKDF<SHA256>.expand(
-                pseudoRandomKey: secret, info: keyLabel, outputByteCount: suite.keyLength
-            )
-            salt = HKDF<SHA256>.expand(
-                pseudoRandomKey: secret, info: saltLabel, outputByteCount: suite.nonceLength
-            ).withUnsafeBytes { Data($0) }
-        case .aes256GcmSha512:
-            let secret = HKDF<SHA512>.extract(
-                inputKeyMaterial: SymmetricKey(data: baseKey), salt: Data()
-            )
-            key = HKDF<SHA512>.expand(
-                pseudoRandomKey: secret, info: keyLabel, outputByteCount: suite.keyLength
-            )
-            salt = HKDF<SHA512>.expand(
-                pseudoRandomKey: secret, info: saltLabel, outputByteCount: suite.nonceLength
-            ).withUnsafeBytes { Data($0) }
-        }
+        let secret = HKDF<SHA512>.extract(
+            inputKeyMaterial: SymmetricKey(data: baseKey), salt: Data()
+        )
+        key = HKDF<SHA512>.expand(
+            pseudoRandomKey: secret, info: keyLabel, outputByteCount: suite.keyLength
+        )
+        salt = HKDF<SHA512>.expand(
+            pseudoRandomKey: secret, info: saltLabel, outputByteCount: suite.nonceLength
+        ).withUnsafeBytes { Data($0) }
     }
 
     static func label(_ prefix: String, keyID: UInt64, suite: SFrameCipherSuite) -> Data {

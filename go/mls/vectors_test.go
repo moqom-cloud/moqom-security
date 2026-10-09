@@ -77,13 +77,23 @@ func loadCases(t *testing.T, file string) []vector {
 	return document.Cases
 }
 
+// publishedCases are the published cases in suite 5, which is SHA-512's: what
+// SuiteMLDSA's KDF is held to. Suite 1's are skipped; it is an AES-128 suite,
+// not implemented.
+func publishedCases(t *testing.T, file string) []vector {
+	var kept []vector
+	for _, v := range loadCases(t, file) {
+		if v.int("cipher_suite") == 5 {
+			kept = append(kept, v)
+		}
+	}
+	return kept
+}
+
 func TestPublishedCryptoBasics(t *testing.T) {
-	for _, v := range loadCases(t, "mlswg-crypto-basics.json") {
+	for _, v := range publishedCases(t, "mlswg-crypto-basics.json") {
 		t.Run(v.name(), func(t *testing.T) {
 			suite := SuiteMLDSA
-			if v.int("cipher_suite") == 1 {
-				suite = SuiteX25519
-			}
 			e := v.object("ref_hash")
 			if got := suite.RefHash(e.str("label"), e.hex(t, "value")); !bytes.Equal(got, e.hex(t, "out")) {
 				t.Error("ref_hash")
@@ -101,51 +111,16 @@ func TestPublishedCryptoBasics(t *testing.T) {
 			if got, err := suite.ExpandWithLabel(e.hex(t, "secret"), e.str("label"), generation, e.int("length")); err != nil || !bytes.Equal(got, e.hex(t, "out")) {
 				t.Error("derive_tree_secret")
 			}
-			if suite != SuiteX25519 {
-				return
-			}
-			s := v.object("sign_with_label")
-			if !suite.VerifyWithLabel(s.hex(t, "pub"), s.str("label"), s.hex(t, "content"), s.hex(t, "signature")) {
-				t.Error("published signature")
-			}
-			// Ed25519 is deterministic, so our own signature is the published one.
-			ours, err := suite.SignWithLabel(s.hex(t, "priv"), s.str("label"), s.hex(t, "content"))
-			if err != nil || !bytes.Equal(ours, s.hex(t, "signature")) {
-				t.Errorf("sign_with_label: %v", err)
-			}
-			c := v.object("encrypt_with_label")
-			opened, err := suite.DecryptWithLabel(c.hex(t, "priv"), c.str("label"), c.hex(t, "context"),
-				HPKECiphertext{KEMOutput: c.hex(t, "kem_output"), Ciphertext: c.hex(t, "ciphertext")})
-			if err != nil || !bytes.Equal(opened, c.hex(t, "plaintext")) {
-				t.Errorf("encrypt_with_label: %v", err)
-			}
-			sealed, err := suite.EncryptWithLabel(c.hex(t, "pub"), c.str("label"), c.hex(t, "context"), []byte("x"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if back, err := suite.DecryptWithLabel(c.hex(t, "priv"), c.str("label"), c.hex(t, "context"), sealed); err != nil || string(back) != "x" {
-				t.Errorf("round trip: %v", err)
-			}
 		})
 	}
 }
 
 func TestPublishedKeySchedule(t *testing.T) {
-	for _, v := range loadCases(t, "mlswg-key-schedule.json") {
+	for _, v := range publishedCases(t, "mlswg-key-schedule.json") {
 		t.Run(v.name(), func(t *testing.T) {
 			suite := SuiteMLDSA
-			if v.int("cipher_suite") == 1 {
-				suite = SuiteX25519
-			}
 			initSecret := v.hex(t, "initial_init_secret")
 			for index, e := range v.objects("epochs") {
-				if suite == SuiteX25519 {
-					context := GroupContext{CipherSuite: suite, GroupID: v.hex(t, "group_id"), Epoch: uint64(index),
-						TreeHash: e.hex(t, "tree_hash"), ConfirmedTranscriptHash: e.hex(t, "confirmed_transcript_hash")}
-					if !bytes.Equal(context.Encode(), e.hex(t, "group_context")) {
-						t.Errorf("epoch %d: group context", index)
-					}
-				}
 				s := deriveEpoch(suite, initSecret, e.hex(t, "commit_secret"), e.hex(t, "psk_secret"), e.hex(t, "group_context"))
 				checkSecrets(t, index, s, e, "")
 				if !bytes.Equal(welcomeSecret(suite, s.JoinerSecret, e.hex(t, "psk_secret")), e.hex(t, "welcome_secret")) {
@@ -222,7 +197,7 @@ func TestCryptoVectors(t *testing.T) {
 					t.Error("mismatch")
 				}
 			case "sign_with_label":
-				key, err := mldsa.NewPrivateKey(mldsa.MLDSA65(), v.hex(t, "seed_hex"))
+				key, err := mldsa.NewPrivateKey(mldsa.MLDSA87(), v.hex(t, "seed_hex"))
 				if err != nil || !bytes.Equal(key.PublicKey().Bytes(), v.hex(t, "public_key_hex")) {
 					t.Fatalf("public key from seed: %v", err)
 				}
@@ -374,7 +349,7 @@ func checkState(t *testing.T, index int, group *Group, e vector) {
 func TestAudienceVectors(t *testing.T) {
 	for _, v := range loadCases(t, "mls-audience.json") {
 		t.Run(v.name(), func(t *testing.T) {
-			key, err := mlkem.NewDecapsulationKey768(v.hex(t, "private_key_hex"))
+			key, err := mlkem.NewDecapsulationKey1024(v.hex(t, "private_key_hex"))
 			if err != nil || !bytes.Equal(key.EncapsulationKey().Bytes(), v.hex(t, "public_key_hex")) {
 				t.Fatalf("public key from seed: %v", err)
 			}

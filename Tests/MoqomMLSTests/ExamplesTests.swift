@@ -69,7 +69,7 @@ struct ExamplesTests {
     }
 
     /// A broadcast viewer is not a member. The committer seals each epoch's
-    /// SFrame base key to the viewer's ML-KEM-768 key, for one group and epoch.
+    /// SFrame base key to the viewer's ML-KEM-1024 key, for one group and epoch.
     @Test func audience() throws {
         let groupID = Data("acme/room-42".utf8)
         let base = Data(count: 32) // from group.sframeBaseKey(suite: .aes256GcmSha512)

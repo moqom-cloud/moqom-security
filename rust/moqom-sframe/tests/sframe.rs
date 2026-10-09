@@ -45,7 +45,7 @@ fn counters_never_repeat() {
 fn no_key_refuses() {
     let sender = Sender::empty();
     assert_eq!(sender.protect_raw(&[1], &[]), Err(Error::NoKey));
-    sender.rekey(Key::new(17, &[1; 16], CipherSuite::Aes128GcmSha256).unwrap());
+    sender.rekey(Key::new(17, &[1; 32], CipherSuite::Aes256GcmSha512).unwrap());
     let sealed = sender.protect_raw(&[1], &[]).unwrap();
     assert_eq!(
         Header::read(&sealed).unwrap().0,
@@ -244,5 +244,13 @@ fn unsupported_suite() {
     assert_eq!(
         CipherSuite::try_from(0x0001),
         Err(Error::UnsupportedSuite(1))
+    );
+}
+
+#[test]
+fn aes_128_is_refused() {
+    assert_eq!(
+        CipherSuite::try_from(0x0004),
+        Err(Error::UnsupportedSuite(4))
     );
 }

@@ -170,7 +170,7 @@ func TestRFC9605(t *testing.T) {
 			t.Errorf("%s: unexpected kind %s", c.Name, c.Kind)
 		}
 	}
-	if headers != 289 || sframes != 2 || skipped != 6 {
+	if headers != 289 || sframes != 1 || skipped != 7 {
 		t.Errorf("ran %d headers, %d sframe, skipped %d", headers, sframes, skipped)
 	}
 }

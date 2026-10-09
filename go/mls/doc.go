@@ -13,10 +13,11 @@
 // MOQOM's own TLS-style framing. It does not interoperate with other MLS
 // implementations and is not RFC 9420 conformant; see docs/moqom-mls.md.
 //
-// Every group is founded in MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65
-// (draft-ietf-mls-pq-ciphersuites): HPKE over pure ML-KEM-768, HKDF-SHA384,
-// AES-256-GCM and ML-DSA-65 signatures. Two older suites are implemented for
-// groups already founded in them. Everything is the standard library's:
-// crypto/hpke, crypto/mldsa, crypto/ed25519, crypto/hkdf, crypto/hmac and
-// crypto/aes.
+// Every group is founded in MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87
+// (0xF0AC, private use): HPKE over pure ML-KEM-1024, HKDF-SHA512, AES-256-GCM,
+// SHA-512 and ML-DSA-87 signatures. It is the only suite: the AES-128 suites
+// (RFC 9420's 0x0001 and the draft's X-Wing, 0xF0A1) and MOQOM's earlier
+// ML-KEM suites 0xF0AA and 0xF0AB are refused as unsupported. Everything is
+// the standard library's: crypto/hpke, crypto/mldsa, crypto/hkdf, crypto/hmac
+// and crypto/aes.
 package mls

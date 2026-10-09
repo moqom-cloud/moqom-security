@@ -2138,7 +2138,8 @@
       "nonce_hex": "75234edefe07819026755d71",
       "aad_hex": "99012345674945544620534672616d65205747",
       "pt_hex": "64726166742d696574662d736672616d652d656e63",
-      "ct_hex": "9901234567b7412c2513a1b66dbb48841bbaf17f598751176ad847681a69c6d0b091c07018ce4adb34eb"
+      "ct_hex": "9901234567b7412c2513a1b66dbb48841bbaf17f598751176ad847681a69c6d0b091c07018ce4adb34eb",
+      "skip": "AES-128-GCM is refused: MOQOM uses AES-256-GCM only"
     },
     {
       "name": "sframe-0005",

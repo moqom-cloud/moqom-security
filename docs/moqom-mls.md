@@ -5,9 +5,9 @@
 
 Group key agreement for MOQOM rooms: the subset of MLS ([[RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)]) that the
 devices in a room use to agree on a secret each epoch. It also produces the
-SFrame base key every member encrypts media under ([[RFC 9605](https://www.rfc-editor.org/rfc/rfc9605)] §5.2). Every new
-group is post-quantum: key packages, commits and Welcomes use [ML-KEM-768](https://csrc.nist.gov/pubs/fips/203/final) and
-[ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final).
+SFrame base key every member encrypts media under ([[RFC 9605](https://www.rfc-editor.org/rfc/rfc9605)] §5.2). Every
+group is post-quantum: key packages, commits and Welcomes use [ML-KEM-1024](https://csrc.nist.gov/pubs/fips/203/final) and
+[ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final).
 
 The library is the same in Swift (`MoqomMLS`), Go
 (`github.com/moqom-cloud/moqom-security/go/mls`) and Rust (`moqom-mls`). All
@@ -39,7 +39,7 @@ the other two generated.
   signature, the member-list hash and the confirmation tag.
 - **Exporter.** `MLS-Exporter(label, context, length)` as [RFC 9420](https://www.rfc-editor.org/rfc/rfc9420) §8.5
   defines it. HKDF-Expand produces at most 255 times the suite's hash length:
-  8,160 bytes in `0xF0A1` and `0x0001`, 12,240 in `0xF0AA`. A longer (or, in
+  16,320 bytes in `0xF0AC`'s SHA-512. A longer (or, in
   Swift and Go, negative) length is refused as `invalid-length` in all three
   languages, and so is the same length asked of the public `ExpandWithLabel`
   (Go), `expand_with_label` (Rust) or `expandWithLabel` (Swift), which return
@@ -49,66 +49,63 @@ the other two generated.
   `(leaf << 4) | (epoch % 16)`, built by `MoqomSFrame`'s `SFrameKeyID` in
   Swift.
 - **Audience envelopes.** A viewer in a large broadcast is not a member. It
-  holds an ML-KEM-768 key pair, and the committer seals each epoch's SFrame
+  holds an ML-KEM-1024 key pair, and the committer seals each epoch's SFrame
   base key to it:
   `EncryptWithLabel(pk, "MOQOM audience key", vector(group_id) || uint64(epoch), base_key)`
-  in suite 0xF0AA, whatever suite the group is in. An envelope opens only for
-  the group and epoch it was sealed for.
+  in suite 0xF0AC, the group's. An envelope opens only for the group and epoch
+  it was sealed for.
 
-## Cipher suites
+## Cipher suite
 
-| Value    | Name                                              | KEM                      | KDF / AEAD               | Signature  |
-| -------- | ------------------------------------------------- | ------------------------ | ------------------------ | ---------- |
-| `0xF0AA` | `MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65`       | [HPKE](https://www.rfc-editor.org/rfc/rfc9180) `0x0041`, [ML-KEM-768](https://csrc.nist.gov/pubs/fips/203/final) | HKDF-SHA384, AES-256-GCM | [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final)  |
-| `0xF0A1` | `MLS_128_MLKEM768X25519_AES128GCM_SHA256_Ed25519` | HPKE `0x647a`, X-Wing     | HKDF-SHA256, AES-128-GCM | Ed25519    |
-| `0x0001` | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`    | HPKE `0x0020`, X25519     | HKDF-SHA256, AES-128-GCM | Ed25519    |
+| Value    | Name                                         | KEM                      | KDF / AEAD               | Signature  |
+| -------- | -------------------------------------------- | ------------------------ | ------------------------ | ---------- |
+| `0xF0AC` | `MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87` | [HPKE](https://www.rfc-editor.org/rfc/rfc9180) `0x0042`, [ML-KEM-1024](https://csrc.nist.gov/pubs/fips/203/final) | HKDF-SHA512, AES-256-GCM | [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final)  |
 
-`0xF0AA` is the founding suite: every new group is created in it, and the
-delivery service refuses to found a group in any other. The other two remain
-so that groups already founded in them can be followed. `0xF0AA` and `0xF0A1`
-are [draft-ietf-mls-pq-ciphersuites](https://datatracker.ietf.org/doc/draft-ietf-mls-pq-ciphersuites/)' suites. They sit in [RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)'s private-use
-range until IANA assigns values, and must then change in all three languages
-together.
+There is one suite. Every group is created in it, and a key package, Welcome
+or group in any other is refused as `unsupported`, never negotiated down to:
+that includes RFC 9420's mandatory `0x0001`, and
+[draft-ietf-mls-pq-ciphersuites](https://datatracker.ietf.org/doc/draft-ietf-mls-pq-ciphersuites/)' X-Wing
+and ML-KEM-768 suites, and MOQOM's earlier `0xF0AA` (ML-KEM-768) and `0xF0AB`
+(ML-KEM-1024 with ML-DSA-65). Every part of the suite is NIST security
+category 5. The draft defines a suite of this name but has no value assigned
+to it yet, so `0xF0AC` is from [RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)'s private-use range (§17.1) and no other MLS
+implementation recognises it. When IANA assigns one, all three languages
+change together.
 
-ML-DSA-65 is pure ML-DSA with an empty context. HPKE is RFC 9180 base mode,
-single-shot, with empty AAD. For KEMs `0x0041` and `0x647a` the shared secret
-is the KEM's own ([draft-ietf-hpke-pq](https://datatracker.ietf.org/doc/draft-ietf-hpke-pq/)). For X-Wing that is
-draft-connolly-cfrg-xwing-kem's `SHA3-256(ss_M || ss_X || ct_X || pk_X ||
-"\.//^\")`. The public key is ML-KEM-768's encapsulation key followed by
-X25519's, and the encapsulation is ML-KEM-768's ciphertext followed by X25519's.
+ML-DSA-87 is pure ML-DSA with an empty context. HPKE is RFC 9180 base mode,
+single-shot, with empty AAD. For KEM `0x0042` the shared secret is ML-KEM's
+own 32 bytes ([draft-ietf-hpke-pq](https://datatracker.ietf.org/doc/draft-ietf-hpke-pq/)). Sizes:
 
-An X-Wing encapsulation whose X25519 half gives an all-zero shared value is
-refused by Rust (AWS-LC) and Go (`crypto/ecdh`). The draft does not require
-this check. An honest sender never produces such a value, so it makes no
-difference to an honest exchange.
+| What                              | Bytes |
+| --------------------------------- | ----- |
+| ML-KEM-1024 encapsulation key     | 1,568 |
+| ML-KEM-1024 ciphertext (`enc`)    | 1,568 |
+| ML-KEM-1024 seed (private key)    | 64    |
+| ML-DSA-87 public key              | 2,592 |
+| ML-DSA-87 signature               | 4,627 |
+| Key package                       | about 10,370 |
+| Commit, per remaining member      | about 1,660 |
+| Welcome, per member in the group  | about 4,180 |
 
 Private keys are stored as RFC 9180's `SerializePrivateKey` gives them:
 
-- ML-KEM-768: the 64-byte seed `d || z`.
-- X-Wing: the 32-byte seed.
-- X25519: the raw scalar.
-- Signature keys: the 32-byte seed (FIPS 204's ξ for ML-DSA-65, or the Ed25519
-  seed).
+- ML-KEM-1024: the 64-byte seed `d || z`.
+- ML-DSA-87: the 32-byte seed (FIPS 204's ξ).
 
 Nothing here implements a primitive:
 
 - Swift composes CryptoKit. CryptoKit has no HPKE over pure ML-KEM, so the
-  RFC 9180 key schedule is written in `CipherSuite.swift`.
-- Go uses `crypto/hpke`, `crypto/mlkem`, `crypto/mldsa`, `crypto/hkdf` and
-  `crypto/ed25519`.
+  RFC 9180 key schedule is written in `CipherSuite.swift` over CryptoKit's
+  `MLKEM1024`, `MLDSA87`, HKDF-SHA512 and AES-256-GCM.
+- Go uses `crypto/hpke` (`hpke.MLKEM1024()`), `crypto/mlkem`, `crypto/mldsa`
+  and `crypto/hkdf`.
 - Rust composes aws-lc-rs. RFC 9180 HPKE is written in `src/hpke.rs`, and
   ML-KEM keys load from their seed through AWS-LC's PKCS#8 seed form (see
-  [Unsafe code](#unsafe-code)). aws-lc-rs has no X-Wing, so `src/xwing.rs`
-  composes it from aws-lc-rs's ML-KEM-768, X25519 and SHA3-256. The 32-byte
-  seed is expanded with SHAKE256, which aws-lc-rs does not expose, so that
-  comes from RustCrypto's `sha3` crate (0.11, no default features). `sha3`
-  forbids `unsafe`, but its `keccak` dependency uses ARMv8 SHA-3 intrinsics
-  when the CPU has them. It is the only primitive not taken from AWS-LC.
+  [Unsafe code](#unsafe-code)).
 
-The hand-written compositions, Swift's ML-KEM HPKE and Rust's HPKE and X-Wing,
-are held to Go's `crypto/hpke` and CryptoKit's `XWingMLKEM768X25519` by the
-vectors. Each language opens ciphertexts the other two sealed, in `0xF0AA` and
-in `0xF0A1`.
+The hand-written compositions, Swift's and Rust's HPKE, are held to Go's
+`crypto/hpke` by the vectors. Each language opens ciphertexts the other two
+sealed.
 
 ## Wire formats
 
@@ -181,7 +178,7 @@ The same operations in each language. Errors are those in
 Names keep the `MLS` prefix so they cannot collide with SwiftUI's `Group`.
 
 ```swift
-let bundle = try MLSKeyPackageBundle.generate(identity: "alice/phone", cipherSuite: .mls192MLKEM768MLDSA65)
+let bundle = try MLSKeyPackageBundle.generate(identity: "alice/phone", cipherSuite: .mls256MLKEM1024MLDSA87)
 let package = try MLSKeyPackage.decode(bytes); try package.verify()
 
 var group = try MLSGroup.create(groupID: id, bundle: bundle)
@@ -280,8 +277,6 @@ times the hash length. The key schedule is `GroupContext`,
 `Group`, `PendingCommit`, `Processed` and `EpochSecrets` implement `Debug`
 with every secret and private key left out.
 
-Rust implements [HPKE](https://www.rfc-editor.org/rfc/rfc9180) in all three suites, X-Wing included.
-
 ## Error classes
 
 The vectors name a class, never a message. Each language maps its errors onto
@@ -315,20 +310,18 @@ Being removed by a commit is an outcome, not an error. Swift returns
 
 ## Vectors
 
-`vectors/mls` holds 13 files.
+`vectors/mls` holds 11 files. Every MOQOM-generated case is in `0xF0AC`.
 
 | File                         | Cases | From | What |
 | ---------------------------- | ----- | ---- | ---- |
-| `mlswg-crypto-basics.json`   | 2     | mlswg/mls-implementations | RefHash, ExpandWithLabel, DeriveSecret and DeriveTreeSecret for suites 1 and 7. Suite 1 also checks SignWithLabel and EncryptWithLabel. |
-| `mlswg-key-schedule.json`    | 2     | mlswg/mls-implementations | Every epoch secret, the GroupContext and the exporter, for suites 1 and 7. |
+| `mlswg-crypto-basics.json`   | 1     | mlswg/mls-implementations | RefHash, ExpandWithLabel, DeriveSecret and DeriveTreeSecret for suite 5. |
+| `mlswg-key-schedule.json`    | 1     | mlswg/mls-implementations | Every epoch secret, the GroupContext and the exporter, for suite 5. |
 | `mlswg-deserialization.json` | 14    | mlswg/mls-implementations | §2.1.2 variable-length headers, both directions. |
-| `xwing-draft.json`           | 3     | draft-connolly-cfrg-xwing-kem | X-Wing's public key from its seed, and decapsulation to the shared secret. |
-| `hpkewg-xwing.json`          | 1     | hpkewg/hpke-pq | [HPKE](https://www.rfc-editor.org/rfc/rfc9180) KEM `0x647a`: `pkRm` from `skRm` and `shared_secret` from `enc` (its AEAD, ChaCha20-Poly1305, is no suite's). |
-| `mls-crypto.json`            | 17    | Swift | Labelled primitives in `0xF0AA`, plus tampered signature and ciphertext cases. The 5 cases with `"cipher_suite": 61601` are EncryptWithLabel in `0xF0A1`: one that opens, then another context, a flipped byte in each KEM half, and a short KEM output. |
-| `mls-crypto-go.json`         | 7     | Go    | [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) and HPKE `0x0041` from Go's standard library, plus tampered cases. 3 cases are HPKE `0x647a` in `0xF0A1`. |
-| `mls-crypto-rust.json`       | 6     | Rust  | The same from aws-lc-rs, `src/hpke.rs` and `src/xwing.rs`. 2 cases are in `0xF0A1`. |
-| `mls-key-schedule.json`      | 1     | Swift | Four epochs of `0xF0AA`: every secret, and the exporter ([SFrame](https://www.rfc-editor.org/rfc/rfc9605) base key at 32 and 16 bytes, "MOQOM direct offer"). |
-| `mls-key-packages.json`      | 14    | Swift | Valid packages in all three suites. Also a bad signature, a changed identity, relabelled and unknown suites, an unknown version, a trailing byte, truncation, and an init key that is reused, not ML-KEM, short, or an Ed25519-sized key where ML-DSA is required. |
+| `mls-crypto.json`            | 12    | Swift | Labelled primitives, plus tampered signature and ciphertext cases and a short KEM output. |
+| `mls-crypto-go.json`         | 4     | Go    | [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) and HPKE `0x0042` from Go's standard library, plus tampered cases. |
+| `mls-crypto-rust.json`       | 4     | Rust  | The same from aws-lc-rs and `src/hpke.rs`. |
+| `mls-key-schedule.json`      | 1     | Swift | Four epochs: every secret, and the exporter ([SFrame](https://www.rfc-editor.org/rfc/rfc9605) base key at 32 and 16 bytes, "MOQOM direct offer"). |
+| `mls-key-packages.json`      | 15    | Swift | A valid package. Also a bad signature, a changed identity, the package relabelled to `0x0001`, `0xF0A1`, `0xF0AA`, `0xF0AB` or an unknown suite, an unknown version, a trailing byte, truncation, and an init key that is reused, not ML-KEM, short, or an Ed25519-sized key where ML-DSA is required. |
 | `mls-group.json`             | 4 (23 steps) | Swift | One member follows a group through a Welcome and add, remove and empty commits, with the epoch, leaf, members, epoch authenticator and exporters after each step. Also forged signature and confirmation tag, another group, a replay, truncation, a Welcome for another package, a tampered Welcome, and removal. |
 | `mls-group-go.json`          | 1 (5 steps)  | Go    | A group Go founded and committed to, followed the same way. |
 | `mls-audience.json`          | 6     | Swift | An envelope that opens, then the same envelope against another epoch, another group, tampered bytes, a trailing byte and truncation. |
@@ -350,12 +343,12 @@ Regenerating:
 MOQOM_MLS_GENERATE=1 swift test --filter MLSVectorGenerator        # Swift files
 cd go && MOQOM_MLS_GENERATE=1 go test ./mls -run TestGenerateVectors # Go files
 cd rust && MOQOM_MLS_GENERATE=1 cargo test -p moqom-mls --test generate  # Rust file
-python3 vectors/mls/published.py                                     # mlswg and X-Wing files
+python3 vectors/mls/published.py                                     # mlswg files
 ```
 
 The published vectors that apply are crypto-basics, key-schedule and
-deserialization. Suite 7's KDF fields check `0xF0AA`'s SHA-384. Suite 7's
-signatures and HPKE use P-384, which is not implemented. `external_pub` is not
+deserialization. Suite 5's KDF fields check `0xF0AC`'s SHA-512. Suite 5's
+signatures and HPKE use P-521, which is not implemented. `external_pub` is not
 checked, since external commits are not implemented.
 
 These published sets cannot apply:
@@ -368,12 +361,8 @@ These published sets cannot apply:
 - **psk_secret, passive-client-\*:** there are no PSKs, and those vectors need
   the full protocol.
 
-No public MLS vectors exist for the post-quantum suites yet. The X-Wing KEM
-under `0xF0A1` is checked against the draft's own vectors and the HPKE working
-group's, in Rust from `xwing-draft.json` and `hpkewg-xwing.json`, and in Swift
-from `Tests/MoqomMLSTests/HybridVectors.swift`. The draft's `eseed` cannot be
-replayed, because neither CryptoKit nor AWS-LC takes caller randomness, so
-X-Wing encapsulation is checked by the cross-language files instead.
+No public MLS vectors exist for this suite, so its HPKE and ML-DSA are held
+to Go's standard library by the cross-language files.
 
 ## RFC 9420 subset
 
@@ -411,19 +400,18 @@ service accepts the commit.
 
 ## Unsafe code
 
-`rust/moqom-mls/src/mlkem.rs` holds the crate's only `unsafe` code; X-Wing in
-`src/xwing.rs` reaches AWS-LC only through it and safe aws-lc-rs. aws-lc-rs
-(1.18.1, the latest release) builds an [ML-KEM-768](https://csrc.nist.gov/pubs/fips/203/final) decapsulation key only from
-the expanded 2,400-byte key, and has no safe way in from the 64-byte seed that
+`rust/moqom-mls/src/mlkem.rs` holds the crate's only `unsafe` code. aws-lc-rs
+(1.18.1, the latest release) builds an [ML-KEM-1024](https://csrc.nist.gov/pubs/fips/203/final) decapsulation key only from
+the expanded 3,168-byte key, and has no safe way in from the 64-byte seed that
 every language here stores. So the seed is wrapped in a fixed 86-byte PKCS#8
-PrivateKeyInfo, [RFC 9935](https://www.rfc-editor.org/rfc/rfc9935)'s `[0]` seed form, and passed to AWS-LC through
+PrivateKeyInfo (`id-alg-ml-kem-1024`), [RFC 9935](https://www.rfc-editor.org/rfc/rfc9935)'s `[0]` seed form, and passed to AWS-LC through
 `aws-lc-sys`:
 
 1. `EVP_parse_private_key` parses it from a `CBS` over the buffer. Any byte
    left unread is refused. AWS-LC checks that the seed is 64 bytes and runs
    FIPS 203's KeyGen on it.
 2. `EVP_PKEY_get_raw_private_key` and `EVP_PKEY_get_raw_public_key` copy out
-   the 2,400-byte decapsulation key and the 1,184-byte encapsulation key. A
+   the 3,168-byte decapsulation key and the 1,568-byte encapsulation key. A
    call that fails, or writes any other length, is refused.
 3. The expanded key goes to aws-lc-rs's `kem::DecapsulationKey::new`, and the
    `EVP_PKEY` is freed.

@@ -5,10 +5,11 @@
 
 Group key agreement for MOQOM rooms: the subset of MLS ([[RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)]) the
 devices in a room use to agree a secret each epoch, and the [SFrame](https://www.rfc-editor.org/rfc/rfc9605) base key
-([RFC 9605] §5.2) every member encrypts media under. New groups are founded in
-`MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65` (`0xF0AA`): [ML-KEM-768](https://csrc.nist.gov/pubs/fips/203/final) key
-encapsulation and [ML-DSA-65](https://csrc.nist.gov/pubs/fips/204/final) signatures. Groups founded in X-Wing (`0xF0A1`)
-or `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (`0x0001`) still work.
+([RFC 9605] §5.2) every member encrypts media under. Every group is in
+`MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87` (`0xF0AC`, private use): [ML-KEM-1024](https://csrc.nist.gov/pubs/fips/203/final)
+key encapsulation, SHA-512 and [ML-DSA-87](https://csrc.nist.gov/pubs/fips/204/final) signatures, NIST category 5 throughout, the
+only suite implemented. A key package or Welcome in any other suite, including X-Wing (`0xF0A1`),
+`MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (`0x0001`) and MOQOM's earlier `0xF0AA` and `0xF0AB`, is refused.
 
 ```rust
 use moqom_mls::{CipherSuite, Group, KeyPackageBundle, SFRAME_EXPORTER_LABEL};

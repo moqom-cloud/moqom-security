@@ -1,7 +1,7 @@
 [package]
 name = "moqom-mls"
 version = "0.1.0"
-description = "The MOQOM subset of MLS (RFC 9420): ML-KEM-768 and ML-DSA-65 key packages, Welcome, commits, SFrame exporter and audience envelopes"
+description = "The MOQOM subset of MLS (RFC 9420): ML-KEM-1024 and ML-DSA-87 key packages, Welcome, commits, SFrame exporter and audience envelopes"
 readme = "README.md"
 keywords = ["mls", "rfc9420", "post-quantum", "ml-kem", "e2ee"]
 categories = ["cryptography", "network-programming"]
@@ -18,7 +18,6 @@ repository.workspace = true
 [dependencies]
 aws-lc-rs = { workspace = true }
 aws-lc-sys = "0.45"
-sha3 = { workspace = true }
 thiserror = { workspace = true }
 zeroize = { workspace = true }
 

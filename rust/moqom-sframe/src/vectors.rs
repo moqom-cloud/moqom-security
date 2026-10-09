@@ -138,11 +138,8 @@ fn rfc9605() {
                 );
                 // HKDF-Extract with an empty salt is HMAC under an empty key; the
                 // PRK itself is opaque in aws-lc-rs.
-                let algorithm = match suite {
-                    CipherSuite::Aes128GcmSha256 => hmac::HMAC_SHA256,
-                    CipherSuite::Aes256GcmSha512 => hmac::HMAC_SHA512,
-                };
-                let secret = hmac::sign(&hmac::Key::new(algorithm, &[]), &base);
+                assert_eq!(suite, CipherSuite::Aes256GcmSha512);
+                let secret = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA512, &[]), &base);
                 assert_eq!(
                     to_hex(secret.as_ref()),
                     case["sframe_secret_hex"].as_str().unwrap(),
@@ -190,7 +187,7 @@ fn rfc9605() {
             kind => panic!("{name}: unexpected kind {kind}"),
         }
     }
-    assert_eq!((headers, sframes, skipped), (289, 2, 6));
+    assert_eq!((headers, sframes, skipped), (289, 1, 7));
 }
 
 #[test]

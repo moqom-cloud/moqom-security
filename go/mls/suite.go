@@ -6,15 +6,12 @@ package mls
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/ecdh"
-	"crypto/ed25519"
 	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/hpke"
 	"crypto/mldsa"
 	"crypto/mlkem"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/sha512"
 	"fmt"
 	"hash"
@@ -25,102 +22,56 @@ const protocolVersion = 0x0001 // mls10
 // CipherSuite is an MLS cipher suite identifier, RFC 9420 §17.1.
 type CipherSuite uint16
 
-const (
-	// SuiteX25519 is MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519, RFC 9420's
-	// mandatory suite, kept for groups founded in it.
-	SuiteX25519 CipherSuite = 0x0001
-	// SuiteXWing is MLS_128_MLKEM768X25519_AES128GCM_SHA256_Ed25519,
-	// draft-ietf-mls-pq-ciphersuites' first suite (HPKE KEM 0x647a, X-Wing),
-	// kept for groups founded in it. The draft's value is still TBD, so this
-	// is from RFC 9420's private-use range and must change with every other
-	// implementation's when IANA assigns one.
-	SuiteXWing CipherSuite = 0xF0A1
-	// SuiteMLDSA is MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65, the draft's
-	// TBD10: HPKE KEM 0x0041 (pure ML-KEM-768), HKDF-SHA384, AES-256-GCM and
-	// ML-DSA-65 signatures (pure, empty context). Private-use, like
-	// SuiteXWing, until IANA assigns the draft's value.
-	SuiteMLDSA CipherSuite = 0xF0AA
-)
+// SuiteMLDSA is MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87,
+// draft-ietf-mls-pq-ciphersuites' category-5 suite: HPKE KEM 0x0042 (pure
+// ML-KEM-1024, draft-ietf-hpke-pq), HKDF-SHA512 (HPKE KDF 0x0003),
+// AES-256-GCM, SHA-512 and ML-DSA-87 signatures (pure, empty context). The
+// draft's value is still TBD, so this is from RFC 9420's private-use range and
+// must change with every other implementation's when IANA assigns one.
+//
+// It is the only suite. The AES-128 suites, RFC 9420's 0x0001 and the draft's
+// X-Wing 0xF0A1, and MOQOM's earlier ML-KEM suites 0xF0AA and 0xF0AB are
+// refused as unsupported.
+const SuiteMLDSA CipherSuite = 0xF0AC
 
-// FoundingSuite is the suite every new group is founded in.
+// FoundingSuite is the suite every group is founded in.
 const FoundingSuite = SuiteMLDSA
 
 const aeadNonceLength = 12
 
 // Known reports whether the suite is one this package implements.
 func (s CipherSuite) Known() bool {
-	return s == SuiteX25519 || s == SuiteXWing || s == SuiteMLDSA
+	return s == SuiteMLDSA
 }
 
 // Name is the suite's registered name.
 func (s CipherSuite) Name() string {
-	switch s {
-	case SuiteX25519:
-		return "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519"
-	case SuiteXWing:
-		return "MLS_128_MLKEM768X25519_AES128GCM_SHA256_Ed25519"
-	case SuiteMLDSA:
-		return "MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65"
+	if s == SuiteMLDSA {
+		return "MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87"
 	}
 	return fmt.Sprintf("unknown suite %#04x", uint16(s))
 }
 
 func (s CipherSuite) String() string { return fmt.Sprintf("%s (%#04x)", s.Name(), uint16(s)) }
 
-func (s CipherSuite) sha384() bool { return s == SuiteMLDSA }
+func (CipherSuite) newHash() hash.Hash { return sha512.New() }
 
-func (s CipherSuite) newHash() hash.Hash {
-	if s.sha384() {
-		return sha512.New384()
-	}
-	return sha256.New()
-}
+// HashLength is KDF.Nh: 64, for SHA-512.
+func (CipherSuite) HashLength() int { return 64 }
 
-// HashLength is KDF.Nh: 48 for SHA-384, 32 for SHA-256.
-func (s CipherSuite) HashLength() int {
-	if s.sha384() {
-		return 48
-	}
-	return 32
-}
+// aeadKeyLength is AEAD.Nk: 32, for AES-256-GCM.
+const aeadKeyLength = 32
 
-func (s CipherSuite) aeadKeyLength() int {
-	if s.sha384() {
-		return 32
-	}
-	return 16
-}
+func (CipherSuite) aeadKeyLength() int { return aeadKeyLength }
 
 // PublicKeyLength is an init or leaf encryption key's length, HPKE's Npk.
-func (s CipherSuite) PublicKeyLength() int {
-	switch s {
-	case SuiteX25519:
-		return 32
-	case SuiteXWing:
-		return mlkem.EncapsulationKeySize768 + 32
-	}
-	return mlkem.EncapsulationKeySize768
-}
+func (CipherSuite) PublicKeyLength() int { return mlkem.EncapsulationKeySize1024 }
 
 // EncapsulationLength is HPKE's Nenc.
-func (s CipherSuite) EncapsulationLength() int {
-	switch s {
-	case SuiteX25519:
-		return 32
-	case SuiteXWing:
-		return mlkem.CiphertextSize768 + 32
-	}
-	return mlkem.CiphertextSize768
-}
+func (CipherSuite) EncapsulationLength() int { return mlkem.CiphertextSize1024 }
 
-// SignatureKeyLength is a signature public key's length: 1,952 for ML-DSA-65,
-// 32 for Ed25519.
-func (s CipherSuite) SignatureKeyLength() int {
-	if s == SuiteMLDSA {
-		return 1952
-	}
-	return ed25519.PublicKeySize
-}
+// SignatureKeyLength is a signature public key's length: 2,592, for ML-DSA-87.
+func (CipherSuite) SignatureKeyLength() int { return 2592 }
 
 func (s CipherSuite) hash(data []byte) []byte {
 	h := s.newHash()
@@ -197,21 +148,16 @@ func randomBytes(n int) []byte {
 // Signatures
 
 // GenerateSignatureKeyPair returns a fresh signature key: the private half as
-// a 32-byte ML-DSA-65 seed (FIPS 204's xi) or Ed25519 seed, and the public
-// half as it travels.
+// a 32-byte ML-DSA-87 seed (FIPS 204's xi), and the public half as it travels.
 func (s CipherSuite) GenerateSignatureKeyPair() (private, public []byte, err error) {
-	if s == SuiteMLDSA {
-		key, err := mldsa.GenerateKey(mldsa.MLDSA65())
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w: %v", ErrCryptoFailure, err)
-		}
-		return key.Bytes(), key.PublicKey().Bytes(), nil
+	if !s.Known() {
+		return nil, nil, fmt.Errorf("%w: cipher suite %#04x", ErrUnsupported, uint16(s))
 	}
-	public, key, err := ed25519.GenerateKey(rand.Reader)
+	key, err := mldsa.GenerateKey(mldsa.MLDSA87())
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrCryptoFailure, err)
 	}
-	return key.Seed(), public, nil
+	return key.Bytes(), key.PublicKey().Bytes(), nil
 }
 
 func signContent(label string, content []byte) []byte {
@@ -224,70 +170,47 @@ func signContent(label string, content []byte) []byte {
 // SignWithLabel is RFC 9420 §5.1.2's, with a private key as
 // GenerateSignatureKeyPair returns it.
 func (s CipherSuite) SignWithLabel(private []byte, label string, content []byte) ([]byte, error) {
-	message := signContent(label, content)
-	if s == SuiteMLDSA {
-		key, err := mldsa.NewPrivateKey(mldsa.MLDSA65(), private)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrCryptoFailure, err)
-		}
-		signature, err := key.Sign(rand.Reader, message, &mldsa.Options{})
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrCryptoFailure, err)
-		}
-		return signature, nil
+	if !s.Known() {
+		return nil, fmt.Errorf("%w: cipher suite %#04x", ErrUnsupported, uint16(s))
 	}
-	if len(private) != ed25519.SeedSize {
-		return nil, fmt.Errorf("%w: Ed25519 seed length", ErrCryptoFailure)
+	key, err := mldsa.NewPrivateKey(mldsa.MLDSA87(), private)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCryptoFailure, err)
 	}
-	return ed25519.Sign(ed25519.NewKeyFromSeed(private), message), nil
+	signature, err := key.Sign(rand.Reader, signContent(label, content), &mldsa.Options{})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCryptoFailure, err)
+	}
+	return signature, nil
 }
 
 // VerifyWithLabel is RFC 9420 §5.1.2's.
 func (s CipherSuite) VerifyWithLabel(public []byte, label string, content, signature []byte) bool {
-	if len(public) != s.SignatureKeyLength() {
+	if !s.Known() || len(public) != s.SignatureKeyLength() {
 		return false
 	}
-	message := signContent(label, content)
-	if s == SuiteMLDSA {
-		key, err := mldsa.NewPublicKey(mldsa.MLDSA65(), public)
-		if err != nil {
-			return false
-		}
-		return mldsa.Verify(key, message, signature, nil) == nil
+	key, err := mldsa.NewPublicKey(mldsa.MLDSA87(), public)
+	if err != nil {
+		return false
 	}
-	return ed25519.Verify(public, message, signature)
+	return mldsa.Verify(key, signContent(label, content), signature, nil) == nil
 }
 
 // The KEM
 
-func (s CipherSuite) kem() hpke.KEM {
-	switch s {
-	case SuiteX25519:
-		return hpke.DHKEM(ecdh.X25519())
-	case SuiteXWing:
-		return hpke.MLKEM768X25519()
-	}
-	return hpke.MLKEM768()
-}
+func (CipherSuite) kem() hpke.KEM { return hpke.MLKEM1024() }
 
-func (s CipherSuite) kdf() hpke.KDF {
-	if s.sha384() {
-		return hpke.HKDFSHA384()
-	}
-	return hpke.HKDFSHA256()
-}
+func (CipherSuite) kdf() hpke.KDF { return hpke.HKDFSHA512() }
 
-func (s CipherSuite) aead() hpke.AEAD {
-	if s.sha384() {
-		return hpke.AES256GCM()
-	}
-	return hpke.AES128GCM()
-}
+func (CipherSuite) aead() hpke.AEAD { return hpke.AES256GCM() }
 
 // GenerateKeyPair returns a fresh KEM key pair: the private half as RFC 9180's
-// SerializePrivateKey gives it (the X25519 scalar, X-Wing's 32-byte seed, or
-// ML-KEM-768's 64-byte seed d || z) and the public half as it travels.
+// SerializePrivateKey gives it (ML-KEM-1024's 64-byte seed d || z) and the
+// public half as it travels.
 func (s CipherSuite) GenerateKeyPair() (private, public []byte, err error) {
+	if !s.Known() {
+		return nil, nil, fmt.Errorf("%w: cipher suite %#04x", ErrUnsupported, uint16(s))
+	}
 	key, err := s.kem().GenerateKey()
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrCryptoFailure, err)
@@ -300,16 +223,12 @@ func (s CipherSuite) GenerateKeyPair() (private, public []byte, err error) {
 }
 
 // isValidPublicKey reports whether a key is the suite's KEM's: the right
-// length and, for ML-KEM-768 alone or as X-Wing's first half, passing FIPS
-// 203's encapsulation key check.
+// length, and passing FIPS 203's encapsulation key check.
 func (s CipherSuite) isValidPublicKey(public []byte) bool {
-	if len(public) != s.PublicKeyLength() {
+	if !s.Known() || len(public) != s.PublicKeyLength() {
 		return false
 	}
-	if s == SuiteX25519 {
-		return true
-	}
-	_, err := mlkem.NewEncapsulationKey768(public[:mlkem.EncapsulationKeySize768])
+	_, err := mlkem.NewEncapsulationKey1024(public)
 	return err == nil
 }
 
@@ -337,6 +256,9 @@ func encryptContext(label string, context []byte) []byte {
 
 // EncryptWithLabel is RFC 9420 §5.1.3's: HPKE base mode, empty AAD.
 func (s CipherSuite) EncryptWithLabel(public []byte, label string, context, plaintext []byte) (HPKECiphertext, error) {
+	if !s.Known() {
+		return HPKECiphertext{}, fmt.Errorf("%w: cipher suite %#04x", ErrUnsupported, uint16(s))
+	}
 	if len(public) != s.PublicKeyLength() {
 		return HPKECiphertext{}, fmt.Errorf("%w: public key length", ErrMalformed)
 	}
@@ -358,7 +280,7 @@ func (s CipherSuite) EncryptWithLabel(public []byte, label string, context, plai
 // DecryptWithLabel is RFC 9420 §5.1.3's, with a private key as
 // GenerateKeyPair returns it.
 func (s CipherSuite) DecryptWithLabel(private []byte, label string, context []byte, ciphertext HPKECiphertext) ([]byte, error) {
-	if len(ciphertext.KEMOutput) != s.EncapsulationLength() {
+	if !s.Known() || len(ciphertext.KEMOutput) != s.EncapsulationLength() {
 		return nil, fmt.Errorf("%w: encapsulation length", ErrDecryptionFailed)
 	}
 	key, err := s.kem().NewPrivateKey(private)
@@ -376,9 +298,13 @@ func (s CipherSuite) DecryptWithLabel(private []byte, label string, context []by
 	return plaintext, nil
 }
 
-// AES-GCM takes its size from the key, so these serve both AEADs.
+// AES-256-GCM only: a key of any other length is refused, so nothing can
+// fall back to AES-128 by passing a 16-byte key.
 
 func aeadSeal(key, nonce, plaintext []byte) ([]byte, error) {
+	if len(key) != aeadKeyLength {
+		return nil, fmt.Errorf("%w: AEAD key length %d", ErrCryptoFailure, len(key))
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrCryptoFailure, err)
@@ -391,6 +317,9 @@ func aeadSeal(key, nonce, plaintext []byte) ([]byte, error) {
 }
 
 func aeadOpen(key, nonce, ciphertext []byte) ([]byte, error) {
+	if len(key) != aeadKeyLength {
+		return nil, fmt.Errorf("%w: AEAD key length %d", ErrDecryptionFailed, len(key))
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)

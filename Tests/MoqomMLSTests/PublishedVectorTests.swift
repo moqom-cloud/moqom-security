@@ -10,15 +10,21 @@ import Testing
 /// The parts of the MLS subset that claim to be exactly RFC 9420, held to the
 /// working group's published vectors. Anything not tested here is not claimed.
 ///
-/// Suite 7 is not implemented; its SHA-384 KDF fields are run through
-/// MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65, which shares them.
+/// Suite 5 is not implemented; its SHA-512 KDF fields are run through
+/// MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87, which shares them. Suite 1's
+/// vectors are not: it is an AES-128 suite, and is not implemented.
 @Suite("MLS conformance (mlswg/mls-implementations vectors)")
 struct PublishedVectorTests {
     private func suite(_ v: Vector) -> MLSCipherSuite {
-        v.int("cipher_suite") == 1 ? .mls128DHKEMX25519 : .mls192MLKEM768MLDSA65
+        precondition(v.int("cipher_suite") == 5)
+        return .mls256MLKEM1024MLDSA87
     }
 
-    @Test("crypto-basics: RefHash, ExpandWithLabel, DeriveSecret, DeriveTreeSecret", arguments: try Vectors.cases("mlswg-crypto-basics.json"))
+    private static func suite5(_ file: String) throws -> [Vector] {
+        try Vectors.cases(file).filter { $0.int("cipher_suite") == 5 }
+    }
+
+    @Test("crypto-basics: RefHash, ExpandWithLabel, DeriveSecret, DeriveTreeSecret", arguments: try suite5("mlswg-crypto-basics.json"))
     func kdf(_ v: Vector) throws {
         let suite = suite(v)
         var e = v.object("ref_hash")
@@ -42,44 +48,12 @@ struct PublishedVectorTests {
         ) == e.hex("out"))
     }
 
-    @Test("crypto-basics, suite 1: SignWithLabel and EncryptWithLabel")
-    func suite1Asymmetric() throws {
-        let v = try #require(try Vectors.cases("mlswg-crypto-basics.json").first { $0.int("cipher_suite") == 1 })
-        let suite = MLSCipherSuite.mls128DHKEMX25519
-
-        // Ed25519 in CryptoKit is randomised, so our own signature cannot be
-        // compared byte for byte; verifying both directions is the check.
-        let s = v.object("sign_with_label")
-        #expect(suite.verifyWithLabel(s.hex("pub"), label: s.string("label"), content: s.hex("content"), signature: s.hex("signature")))
-        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: s.hex("priv"))
-        #expect(key.publicKey.rawRepresentation == s.hex("pub"))
-        let ours = try suite.signWithLabel(s.hex("priv"), label: s.string("label"), content: s.hex("content"))
-        #expect(suite.verifyWithLabel(s.hex("pub"), label: s.string("label"), content: s.hex("content"), signature: ours))
-        #expect(!suite.verifyWithLabel(s.hex("pub"), label: "Other", content: s.hex("content"), signature: ours))
-
-        let e = v.object("encrypt_with_label")
-        let opened = try suite.decryptWithLabel(
-            e.hex("priv"), label: e.string("label"), context: e.hex("context"),
-            ciphertext: HPKECiphertext(kemOutput: e.hex("kem_output"), ciphertext: e.hex("ciphertext"))
-        )
-        #expect(opened == e.hex("plaintext"))
-        let sealed = try suite.encryptWithLabel(e.hex("pub"), label: e.string("label"), context: e.hex("context"), plaintext: Data("x".utf8))
-        #expect(try suite.decryptWithLabel(e.hex("priv"), label: e.string("label"), context: e.hex("context"), ciphertext: sealed) == Data("x".utf8))
-    }
-
-    @Test("key-schedule: every epoch, every secret, the GroupContext and the exporter", arguments: try Vectors.cases("mlswg-key-schedule.json"))
+    @Test("key-schedule: every epoch, every secret, the GroupContext and the exporter", arguments: try suite5("mlswg-key-schedule.json"))
     func keySchedule(_ v: Vector) throws {
         let suite = suite(v)
         var initSecret = v.hex("initial_init_secret")
         for (index, e) in v.objects("epochs").enumerated() {
-            if v.int("cipher_suite") == 1 {
-                let context = MLSGroupContext(
-                    cipherSuite: suite, groupID: v.hex("group_id"), epoch: UInt64(index),
-                    treeHash: e.hex("tree_hash"), confirmedTranscriptHash: e.hex("confirmed_transcript_hash")
-                )
-                #expect(context.encoded == e.hex("group_context"), "group context, epoch \(index)")
-            }
-            // Suite 7's GroupContext names suite 7, so it is taken as serialised.
+            // Suite 5's GroupContext names suite 5, so it is taken as serialised.
             let secrets = MLSEpochSecrets.derive(
                 initSecret: initSecret, commitSecret: e.hex("commit_secret"), pskSecret: e.hex("psk_secret"),
                 suite: suite, encodedContext: e.hex("group_context")

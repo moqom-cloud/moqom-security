@@ -12,7 +12,7 @@ import Testing
 /// group code.
 @Suite("MLS shared vectors")
 struct SharedVectorTests {
-    private let suite = MLSCipherSuite.mls192MLKEM768MLDSA65
+    private let suite = MLSCipherSuite.mls256MLKEM1024MLDSA87
 
     private func failure(_ body: () throws -> Void) -> String? {
         do {
@@ -35,7 +35,7 @@ struct SharedVectorTests {
         case "ref_hash":
             #expect(suite.refHash(label: v.string("label"), value: v.hex("value_hex")) == v.hex("out_hex"))
         case "sign_with_label":
-            let key = try MLDSA65.PrivateKey(seedRepresentation: v.hex("seed_hex"), publicKey: nil)
+            let key = try MLDSA87.PrivateKey(seedRepresentation: v.hex("seed_hex"), publicKey: nil)
             #expect(key.publicKey.rawRepresentation == v.hex("public_key_hex"))
             let ok = suite.verifyWithLabel(v.hex("public_key_hex"), label: v.string("label"), content: v.hex("content_hex"), signature: v.hex("signature_hex"))
             #expect(ok == (v.error == nil))
@@ -44,10 +44,7 @@ struct SharedVectorTests {
                 #expect(suite.verifyWithLabel(v.hex("public_key_hex"), label: v.string("label"), content: v.hex("content_hex"), signature: ours))
             }
         case "encrypt_with_label":
-            let suite = v.has("cipher_suite") ? try #require(MLSCipherSuite(identifier: UInt16(v.int("cipher_suite")))) : suite
-            let publicKey = suite == .mls128MLKEM768X25519
-                ? try XWingMLKEM768X25519.PrivateKey(seedRepresentation: v.hex("seed_hex"), publicKey: nil).publicKey.rawRepresentation
-                : try MLKEM768.PrivateKey(seedRepresentation: v.hex("seed_hex"), publicKey: nil).publicKey.rawRepresentation
+            let publicKey = try MLKEM1024.PrivateKey(seedRepresentation: v.hex("seed_hex"), publicKey: nil).publicKey.rawRepresentation
             #expect(publicKey == v.hex("public_key_hex"))
             var opened: Data?
             let error = failure {
@@ -151,7 +148,7 @@ struct SharedVectorTests {
 
     @Test("audience envelopes", arguments: try Vectors.cases("mls-audience.json"))
     func audience(_ v: Vector) throws {
-        let key = try MLKEM768.PrivateKey(seedRepresentation: v.hex("private_key_hex"), publicKey: nil)
+        let key = try MLKEM1024.PrivateKey(seedRepresentation: v.hex("private_key_hex"), publicKey: nil)
         #expect(key.publicKey.rawRepresentation == v.hex("public_key_hex"))
         var opened: Data?
         let error = failure {
